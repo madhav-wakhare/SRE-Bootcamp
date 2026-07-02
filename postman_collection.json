@@ -1,0 +1,94 @@
+{
+  "info": {
+    "name": "Student CRUD API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Healthcheck",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://127.0.0.1:5000/healthcheck",
+          "host": ["127.0.0.1"],
+          "port": "5000",
+          "path": ["healthcheck"]
+        }
+      }
+    },
+    {
+      "name": "Create Student",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Alice\",\n  \"email\": \"alice@example.com\",\n  \"age\": 20\n}"
+        },
+        "url": {
+          "raw": "http://127.0.0.1:5000/api/v1/students",
+          "host": ["127.0.0.1"],
+          "port": "5000",
+          "path": ["api", "v1", "students"]
+        }
+      }
+    },
+    {
+      "name": "List Students",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://127.0.0.1:5000/api/v1/students",
+          "host": ["127.0.0.1"],
+          "port": "5000",
+          "path": ["api", "v1", "students"]
+        }
+      }
+    },
+    {
+      "name": "Get Student",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://127.0.0.1:5000/api/v1/students/1",
+          "host": ["127.0.0.1"],
+          "port": "5000",
+          "path": ["api", "v1", "students", "1"]
+        }
+      }
+    },
+    {
+      "name": "Update Student",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Alice Updated\",\n  \"email\": \"alice.updated@example.com\",\n  \"age\": 21\n}"
+        },
+        "url": {
+          "raw": "http://127.0.0.1:5000/api/v1/students/1",
+          "host": ["127.0.0.1"],
+          "port": "5000",
+          "path": ["api", "v1", "students", "1"]
+        }
+      }
+    },
+    {
+      "name": "Delete Student",
+      "request": {
+        "method": "DELETE",
+        "url": {
+          "raw": "http://127.0.0.1:5000/api/v1/students/1",
+          "host": ["127.0.0.1"],
+          "port": "5000",
+          "path": ["api", "v1", "students", "1"]
+        }
+      }
+    }
+  ]
+}
