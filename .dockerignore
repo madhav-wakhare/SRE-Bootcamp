@@ -1,0 +1,28 @@
+# Ignore virtual environments
+.venv/
+venv/
+env/
+
+# Ignore Python cache and compilation files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore local database files
+*.db
+*.sqlite
+
+# Ignore local configuration and secrets
+.env
+
+# Ignore version control
+.git/
+.gitignore
+
+# Ignore tests and local utilities
+tests/
+.pytest_cache/
+postman_collection.json
+Makefile
+README.md

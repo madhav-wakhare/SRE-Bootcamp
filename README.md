@@ -52,6 +52,21 @@ The API will be available at `http://127.0.0.1:5000` (or whatever `PORT` you con
 - `DATABASE_URL`: Connection URL for the database (e.g., `postgresql://postgres:postgres@localhost:5432/students_db`).
 - `PORT`: Port number on which the web server binds (defaults to `5000`).
 
+## Docker setup
+
+1. Build the Docker image (tagged with semver, defaults to version `1.0.0`):
+   ```bash
+   make docker-build
+   ```
+2. Run the Docker container (injects environment variables dynamically using the `.env` file):
+   ```bash
+   make docker-run
+   ```
+   *To run the container manually and pass variables directly:*
+   ```bash
+   docker run --rm -p 5000:5000 -e DATABASE_URL="postgresql://username:password@host:port/dbname" -e PORT="5000" sre-student-api:1.0.0
+   ```
+
 ## Testing
 ```bash
 make test

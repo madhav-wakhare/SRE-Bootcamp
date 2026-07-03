@@ -23,6 +23,7 @@ class Student(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False) # Unique email address (cannot be null)
     age = db.Column(db.Integer, nullable=False) # Age of the student (cannot be null)
 
+    # Define a method to convert the Student object to a dictionary for easy JSON serialization
     def to_dict(self):
         # Convert the Student object to a dictionary for easy JSON serialization
         return {"id": self.id, "name": self.name, "email": self.email, "age": self.age}
@@ -35,7 +36,7 @@ def create_app():
     
     # If we are in test environment, allow using SQLite for self-contained testing
     if app.config.get("TESTING"):
-        db_url = os.getenv("DATABASE_URL")
+        db_url = os.getenv("DATABASE_URL", "sqlite:///test.db") # Default to SQLite for testing if DATABASE_URL is not set
 
     app.config["SQLALCHEMY_DATABASE_URI"] = db_url # Configure the SQLAlchemy database URI
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False # Disable SQLAlchemy event system to save resources

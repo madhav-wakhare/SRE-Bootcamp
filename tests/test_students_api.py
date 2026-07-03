@@ -19,10 +19,10 @@ def client(tmp_path):
     
     # Run schema creation in the test application context
     with app.app_context():
-        db.create_all()
+        db.create_all() # Create the database schema (tables) for testing
         
     with app.test_client() as client:
-        yield client
+        yield client # Provide the test client to the test functions for making HTTP requests to the Flask app
 
 
 def test_healthcheck(client):
