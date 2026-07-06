@@ -59,9 +59,9 @@ lint:
 # Running tests, checking if the virtual environment exists and using it if available
 test:
 	@if [ -d .venv ]; then \
-		PYTHONPATH=. .venv/bin/pytest -q; \
+		PYTHONPATH=. .venv/bin/pytest --ignore=actions-runner -q; \
 	else \
-		PYTHONPATH=. pytest -q; \
+		PYTHONPATH=. python3 -m pytest --ignore=actions-runner -q; \
 	fi
 
 # Building the Docker image for the API service using docker compose
