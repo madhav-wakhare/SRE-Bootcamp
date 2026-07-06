@@ -62,6 +62,10 @@ jobs:
           # Set the IMAGE_NAME to dockerhub destination and build the image
           IMAGE_NAME=$DOCKER_IMAGE IMAGE_VERSION=$COMMIT_HASH make docker-build
           
+          echo "Tagging image for Docker Hub..."
+          docker tag sre-student-api:$COMMIT_HASH $DOCKER_IMAGE:$COMMIT_HASH
+          
           echo "Pushing image $DOCKER_IMAGE:$COMMIT_HASH to Docker Hub..."
           docker push $DOCKER_IMAGE:$COMMIT_HASH
+
 
