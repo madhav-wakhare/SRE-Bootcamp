@@ -32,6 +32,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Create .env file from secrets
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > .env
+
       - name: Build API (Install Dependencies)
         run: |
           make install
