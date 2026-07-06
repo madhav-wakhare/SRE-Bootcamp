@@ -6,7 +6,7 @@ This repository contains a simple Flask-based REST API for managing students. It
 - CRUD operations for students
 - Versioned API routes under `/api/v1/students`
 - Health check endpoint at `/healthcheck`
-- SQLite database with SQLAlchemy
+- PostgreSQL database with SQLAlchemy (SQLite fallback for unit testing)
 - Environment-based database configuration
 - Unit tests for the main API flows
 
