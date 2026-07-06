@@ -2,15 +2,36 @@ import os
 import logging
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from dotenv import load_dotenv
 
 # Load environment variables from .env file if present
 load_dotenv()
 
 # Configure standard logging to output meaningful information
-logging.basicConfig(level=logging.INFO)
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+logging.basicConfig(level=logging.INFO, format=log_format)
 logger = logging.getLogger(__name__)
+
+# Add a file handler if LOG_FILE environment variable is set
+log_file = os.getenv("LOG_FILE")
+if log_file:
+    # Ensure directory exists
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    # Ensure file exists
+    if not os.path.exists(log_file):
+        try:
+            with open(log_file, "a"):
+                pass
+        except Exception:
+            pass
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(log_format))
+    logging.getLogger().addHandler(file_handler)
+
 
 # SQLAlchemy is acts as a bridge between the Python application and the database, allowing for ORM capabilities and database-agnostic operations (No Raw Queries)
 db = SQLAlchemy()
@@ -34,6 +55,11 @@ def create_app():
     # Get the database URL from environment variable or use a default PostgreSQL string for production parity (falling back to SQLite for local development/tests)
     db_url = os.getenv("DATABASE_URL")
     
+    # Automatically fallback host.docker.internal to localhost if running outside Docker
+    if db_url and "host.docker.internal" in db_url:
+        if not os.path.exists("/.dockerenv"):
+            db_url = db_url.replace("host.docker.internal", "127.0.0.1")
+    
     # If we are in test environment, allow using SQLite for self-contained testing
     if app.config.get("TESTING"):
         db_url = os.getenv("DATABASE_URL", "sqlite:///test.db") # Default to SQLite for testing if DATABASE_URL is not set
@@ -55,6 +81,12 @@ def create_app():
             logger.warning("Invalid student payload")
             return jsonify({"error": "name, email and age are required"}), 400
 
+        # Gracefully handle check if student with the same email already exists
+        existing_student = db.session.execute(db.select(Student).filter_by(email=data["email"])).scalar_one_or_none()
+        if existing_student:
+            logger.warning("Conflict: Student with email %s already exists", data["email"])
+            return jsonify({"error": "Student with this email already exists"}), 409
+
         # Create a new Student instance with the provided data
         student = Student(name=data["name"], email=data["email"], age=data["age"])
         try:
@@ -62,7 +94,12 @@ def create_app():
             db.session.commit() # Commit the session to save the new student to the database
             logger.info("Created student %s", student.id) # Log the creation of the new student with their ID
             return jsonify(student.to_dict()), 201 # Return a JSON response with the newly created student's data and a 201 Created status code
-        # Handle any SQLAlchemy errors that occur during the database operations
+        # Handle integrity constraint violation (e.g. duplicate key)
+        except IntegrityError:
+            db.session.rollback()
+            logger.warning("Conflict: Duplicate email insertion attempted during creation")
+            return jsonify({"error": "Student with this email already exists"}), 409
+        # Handle other SQLAlchemy errors that occur during the database operations
         except SQLAlchemyError as exc:
             db.session.rollback() # Roll back the session to undo any changes made during the failed transaction
             logger.exception("Failed to create student")
@@ -94,6 +131,15 @@ def create_app():
 
         # Get the JSON payload from the request body, or use an empty dictionary if the payload is invalid or missing
         data = request.get_json(silent=True) or {}
+
+        # Gracefully handle check if the new email belongs to another existing student
+        new_email = data.get("email")
+        if new_email and new_email != student.email:
+            existing_student = db.session.execute(db.select(Student).filter_by(email=new_email)).scalar_one_or_none()
+            if existing_student:
+                logger.warning("Conflict: Student with email %s already exists", new_email)
+                return jsonify({"error": "Student with this email already exists"}), 409
+
         # Update the student's attributes with the provided data, or keep the existing values if not provided
         student.name = data.get("name", student.name)
         student.email = data.get("email", student.email)
@@ -102,6 +148,11 @@ def create_app():
             db.session.commit() # Commit the session to save the updated student information to the database
             logger.info("Updated student %s", student.id)
             return jsonify(student.to_dict()), 200 # Return a JSON response with the updated student's data and a 200 OK status code
+        # Handle integrity constraint violation (e.g. duplicate key)
+        except IntegrityError:
+            db.session.rollback()
+            logger.warning("Conflict: Duplicate email update attempted")
+            return jsonify({"error": "Student with this email already exists"}), 409
         except SQLAlchemyError as exc:
             db.session.rollback()
             logger.exception("Failed to update student")

@@ -23,12 +23,14 @@ COPY --from=builder /install /usr/local
 # Copy the application source code and migrations
 COPY app.py .
 COPY migrations/ migrations/
-# Create a non-root user and group for security hardening
-RUN groupadd -r sre-student && useradd -r -g sre-student sre-student \
+# Create a non-root user and group with a static UID/GID (10001) for secure host file permission mapping
+RUN groupadd -g 10001 sre-student && useradd -r -u 10001 -g sre-student sre-student \
     && chown -R sre-student:sre-student /app
 # Switch to the non-root user
 USER sre-student
 # Expose default application port
 EXPOSE 5000
-# Run the application using the python command
-CMD ["python", "app.py"]
+# Set the entrypoint to run Python, allowing for flexibility in command execution
+ENTRYPOINT ["python"]
+# Run the application script
+CMD ["app.py"]
