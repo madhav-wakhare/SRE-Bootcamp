@@ -6,7 +6,8 @@ on:
       - develop
       - ci/cd
     paths:
-      - 'app.py'
+      - 'run.py'
+      - 'src/**'
       - 'migrations/**'
       - 'tests/**'
       - 'requirements.txt'
@@ -15,8 +16,11 @@ on:
   pull_request:
     branches:
       - develop
+      - ci/cd
+      - main
     paths:
-      - 'app.py'
+      - 'run.py'
+      - 'src/**'
       - 'migrations/**'
       - 'tests/**'
       - 'requirements.txt'

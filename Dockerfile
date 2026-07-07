@@ -21,7 +21,8 @@ WORKDIR /app
 # Copy installed Python packages from the builder stage
 COPY --from=builder /install /usr/local
 # Copy the application source code and migrations
-COPY app.py .
+COPY run.py .
+COPY src/ src/
 COPY migrations/ migrations/
 # Create a non-root user and group with a static UID/GID (10001) for secure host file permission mapping
 RUN groupadd -g 10001 sre-student && useradd -r -u 10001 -g sre-student sre-student \
@@ -33,4 +34,4 @@ EXPOSE 5000
 # Set the entrypoint to run Python, allowing for flexibility in command execution
 ENTRYPOINT ["python"]
 # Run the application script
-CMD ["app.py"]
+CMD ["run.py"]
