@@ -1,7 +1,6 @@
 FROM python:3.12-slim AS builder
 
-# Copy the uv binary from the official GHCR image (avoiding latest tag)
-COPY --from=ghcr.io/astral-sh/uv:0.5.24 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.27 /uv /uvx /bin/
 # Set working directory for dependency preparation
 WORKDIR /build
 # Copy only pyproject.toml and uv.lock to leverage Docker cache layers
