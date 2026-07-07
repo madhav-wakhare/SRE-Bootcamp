@@ -46,10 +46,10 @@ migrate-server: db-start
 run:
 	@if [ -d .venv ]; then \
 	# Using the virtual environment's Python interpreter to run the application if the virtual environment exists
-		.venv/bin/python3 app.py; \
+		.venv/bin/python3 run.py; \
 	else \
 	# Using the system's Python interpreter to run the application if the virtual environment does not exist
-		python3 app.py; \
+		python3 run.py; \
 	fi
 
 # Linting the Dockerfile using hadolint to ensure it follows best practices and standards
@@ -96,9 +96,9 @@ run-server: db-start # db-start is a prerequisite to ensure the database is runn
 		echo "Starting REST API locally..."; \
 	fi
 	@export LOG_FILE=$(HOST_LOG_DIR)/app.log && if [ -d .venv ]; then \
-		.venv/bin/python3 app.py; \
+		.venv/bin/python3 run.py; \
 	else \
-		python3 app.py; \
+		python3 run.py; \
 	fi
 
 # Running the REST API docker container, ensuring the database is ready and migrations are applied before starting the service in docker compose

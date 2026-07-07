@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from app import create_app
+from src.app import create_app
 
 
 @pytest.fixture()
@@ -13,7 +13,8 @@ def client(tmp_path):
     os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
     
     # Import the database instance to initialize the schema for testing
-    from app import db, create_app
+    from src.app.models import db
+    from src.app import create_app
     app = create_app()
     app.config["TESTING"] = True
     
