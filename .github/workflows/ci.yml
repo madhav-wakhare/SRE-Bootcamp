@@ -61,20 +61,11 @@ jobs:
         run: |
           make test
 
-      - name: Setup Docker config for CI
-        run: |
-          mkdir -p $RUNNER_TEMP/docker-config
-          echo '{}' > $RUNNER_TEMP/docker-config/config.json
-
       - name: Docker Login to Docker Hub
-        env:
-          DOCKER_CONFIG: ${{ runner.temp }}/docker-config
         run: |
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Build and Push Docker Image
-        env:
-          DOCKER_CONFIG: ${{ runner.temp }}/docker-config
         run: |
           # Get the 7-character commit hash for semantic versioning tag
           COMMIT_HASH=$(git rev-parse --short=7 HEAD)
