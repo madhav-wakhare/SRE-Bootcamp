@@ -1,6 +1,6 @@
 FROM python:3.12-slim AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.27 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.27-python3.12-alpine /usr/local/bin/uv /usr/local/bin/uvx /bin/
 # Set working directory for dependency preparation
 WORKDIR /build
 # Copy only pyproject.toml and uv.lock to leverage Docker cache layers
