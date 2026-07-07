@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: CI Pipeline - SRE Student App
 
 on:
   push:
@@ -10,7 +10,8 @@ on:
       - 'src/**'
       - 'migrations/**'
       - 'tests/**'
-      - 'requirements.txt'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - 'Dockerfile'
       - 'Makefile'
   pull_request:
@@ -24,7 +25,8 @@ on:
       - 'src/**'
       - 'migrations/**'
       - 'tests/**'
-      - 'requirements.txt'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - 'Dockerfile'
       - 'Makefile'
   workflow_dispatch:
@@ -36,6 +38,11 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
       - name: Create .env file from secrets
         run: |
