@@ -2,7 +2,7 @@ IMAGE_NAME ?= sre-student-api
 IMAGE_VERSION ?= 1.0.0
 
 # .PHONY tells all args passed to make is an action, not a file.
-.PHONY: install run test migrate docker-build docker-run db-start lint migrate-server run-server
+.PHONY: install run test migrate docker-build docker-run db-start lint migrate-server run-server vagrant-build vagrant-migrate-server vagrant-run vagrant-db-start
 
 # Makefile for managing the SRE Student API project
 
@@ -108,6 +108,49 @@ docker-run: docker-build db-start # db-start & docker-build are prerequisites to
 		$(MAKE) migrate-server; \
 	fi
 	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose up api -d
+
+vagrant-db-start:
+	@echo "Checking if docker network 'sre-network' exists..."
+	@docker network inspect sre-network >/dev/null 2>&1 || (echo "Creating 'sre-network'..." && docker network create sre-network)
+	@if [ $$(docker ps -q -f name=postgres-db -f status=running | wc -l) -eq 1 ]; then \
+		echo "Database container is already running."; \
+	else \
+		echo "Starting Database container..."; \
+		docker compose -f docker-compose.vagrant.yml up -d db; \
+	fi
+
+vagrant-build:
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose -f docker-compose.vagrant.yml build
+
+vagrant-migrate-server: vagrant-db-start
+	@echo "Waiting for database to be ready before migrations..."
+	@until docker exec postgres-db pg_isready -U postgres -d students_db >/dev/null 2>&1; do \
+		echo "Waiting for database..."; \
+		sleep 1; \
+	done
+	@echo "Running database migrations inside docker compose..."
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose -f docker-compose.vagrant.yml run --rm api1 migrations/apply_migrations.py
+
+vagrant-run: vagrant-build vagrant-db-start
+	@echo "Ensuring host log directory exists and has permissions for container user (UID 10001) and Docker daemon group..."
+	@sudo mkdir -p $(HOST_LOG_DIR)/api1 $(HOST_LOG_DIR)/api2
+	@sudo touch $(HOST_LOG_DIR)/api1/app.log $(HOST_LOG_DIR)/api2/app.log
+	@sudo chown -R 10001:$$(id -g) $(HOST_LOG_DIR)
+	@sudo chmod -R 770 $(HOST_LOG_DIR) && sudo chmod 660 $(HOST_LOG_DIR)/api1/app.log $(HOST_LOG_DIR)/api2/app.log
+	@echo "Checking if database is ready..."
+	@until docker exec postgres-db pg_isready -U postgres -d students_db >/dev/null 2>&1; do \
+		echo "Waiting for database to be ready..."; \
+		sleep 1; \
+	done
+	@echo "Database is ready."
+	@echo "Checking if database migrations are already applied..."
+	@if docker exec postgres-db psql -U postgres -d students_db -c "\dt" 2>/dev/null | grep -q student; then \
+		echo "Database migrations are already applied."; \
+	else \
+		echo "Database migrations not applied. Running migrations..."; \
+		$(MAKE) vagrant-migrate-server; \
+	fi
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose -f docker-compose.vagrant.yml up api1 api2 nginx -d
 
 
 
