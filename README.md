@@ -152,3 +152,36 @@ make test
 - `GET /api/v1/students/<id>`
 - `PUT /api/v1/students/<id>`
 - `DELETE /api/v1/students/<id>`
+
+---
+
+## Continuous Integration (CI) Pipeline
+
+A GitHub Actions workflow is defined in `.github/workflows/ci.yml` that automates build, test, lint, and packaging tasks on a **self-hosted runner**.
+
+### Pipeline Stages
+1. **Build API**: Runs `make install` to install dependencies in the repository workspace.
+2. **Perform Code Linting**: Runs `make lint` (Hadolint check for the `Dockerfile`).
+3. **Run Tests**: Runs `make test` (pytest unit test suite).
+4. **Docker Login**: Logs into Docker Hub using secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
+5. **Docker Build and Push**: Builds the Docker image (using `make docker-build`) and pushes it to Docker Hub (`<dockerhub-username>/sre-student-api:<7-char-commit-hash>`).
+
+
+### Triggers
+* **Automatic**: Triggers on pushes or pull requests affecting production code/configuration files (`app.py`, `migrations/`, `tests/`, `requirements.txt`, `Dockerfile`, `Makefile`).
+* **Manual**: Allows manual workflow runs from the GitHub Actions tab (`workflow_dispatch`).
+
+
+### Setting Up a Self-Hosted Runner
+To execute the pipeline, configure a self-hosted runner on your local machine:
+1. Navigate to your GitHub repository -> **Settings** -> **Actions** -> **Runners** -> **New self-hosted runner**.
+2. Select your OS (macOS/Linux) and architecture.
+3. Follow the provided commands to download, configure, and launch the runner:
+   ```bash
+   # Example Configuration (Replace with token from GitHub Settings)
+   ./config.sh --url https://github.com/<owner>/<repo> --token <registration-token>
+   
+   # Run the worker
+   ./run.sh
+   ```
+

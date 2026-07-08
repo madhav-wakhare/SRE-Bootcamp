@@ -1,0 +1,84 @@
+name: CI Pipeline - SRE Student App
+
+on:
+  push:
+    branches:
+      - develop
+      - ci/cd
+    paths:
+      - 'run.py'
+      - 'src/**'
+      - 'migrations/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'Dockerfile'
+      - 'Makefile'
+  pull_request:
+    types: [closed]
+    branches:
+      - develop
+      - ci/cd
+      - main
+    paths:
+      - 'run.py'
+      - 'src/**'
+      - 'migrations/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'Dockerfile'
+      - 'Makefile'
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: [self-hosted, macOS, ARM64]
+
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Create .env file from secrets
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > .env
+
+      - name: Build API (Install Dependencies)
+        run: |
+          make install
+
+      - name: Perform Code Linting
+        run: |
+          make lint
+
+      - name: Run Tests
+        run: |
+          make test
+
+      - name: Docker Login to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Build and Push Docker Image
+        run: |
+          # Get the 7-character commit hash for semantic versioning tag
+          COMMIT_HASH=$(git rev-parse --short=7 HEAD)
+          DOCKER_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/sre-student-api"
+          
+          echo "Building Docker image..."
+          # Set the IMAGE_NAME to dockerhub destination and build the image
+          IMAGE_NAME=$DOCKER_IMAGE IMAGE_VERSION=$COMMIT_HASH make docker-build
+          
+          echo "Tagging image for Docker Hub..."
+          docker tag sre-student-api:$COMMIT_HASH $DOCKER_IMAGE:$COMMIT_HASH
+          
+          echo "Pushing image $DOCKER_IMAGE:$COMMIT_HASH to Docker Hub..."
+          docker push $DOCKER_IMAGE:$COMMIT_HASH
+
+

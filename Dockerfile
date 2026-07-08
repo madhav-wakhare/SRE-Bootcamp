@@ -1,10 +1,14 @@
 FROM python:3.12-slim AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.27-python3.12-alpine /usr/local/bin/uv /usr/local/bin/uvx /bin/
+
 # Set working directory for dependency preparation
 WORKDIR /build
-# Copy only requirements to leverage Docker cache layers
-COPY requirements.txt .
-# Install dependencies to a target directory (/install)
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# Copy only pyproject.toml and uv.lock to leverage Docker cache layers
+COPY pyproject.toml uv.lock ./
+# Install dependencies using uv to a target directory (/install).
+#command interface that mimics the standard pip tool (supporting options like install, compile, etc.), but executes at Rust speed.
+RUN uv pip install --no-cache --system --prefix=/install -r pyproject.toml
 
 #Final Stage
 FROM python:3.12-slim
@@ -21,7 +25,8 @@ WORKDIR /app
 # Copy installed Python packages from the builder stage
 COPY --from=builder /install /usr/local
 # Copy the application source code and migrations
-COPY app.py .
+COPY run.py .
+COPY src/ src/
 COPY migrations/ migrations/
 # Create a non-root user and group with a static UID/GID (10001) for secure host file permission mapping
 RUN groupadd -g 10001 sre-student && useradd -r -u 10001 -g sre-student sre-student \
@@ -33,4 +38,4 @@ EXPOSE 5000
 # Set the entrypoint to run Python, allowing for flexibility in command execution
 ENTRYPOINT ["python"]
 # Run the application script
-CMD ["app.py"]
+CMD ["run.py"]

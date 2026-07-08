@@ -4,7 +4,8 @@ import sys
 # Add the parent directory of this file to the Python path to allow importing the app module
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app import create_app, db
+from src.app import create_app
+from src.app.models import db
 
 
 def apply_migrations():

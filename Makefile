@@ -8,7 +8,7 @@ IMAGE_VERSION ?= 1.0.0
 
 # Installing dependencies for the project
 install:
-	python3 -m pip install -r requirements.txt
+	uv sync
 
 # Starting the database container if it's not already running, creating the docker network if missing
 db-start:
@@ -24,11 +24,7 @@ db-start:
 
 # Running database migrations, checking if the virtual environment exists and using it if available
 migrate:
-	@if [ -d .venv ]; then \
-		.venv/bin/python3 migrations/apply_migrations.py; \
-	else \
-		python3 migrations/apply_migrations.py; \
-	fi
+	uv run python migrations/apply_migrations.py
 
 # Running database migrations inside the docker compose environment, ensuring the database is ready before applying migrations
 migrate-server: db-start
@@ -40,17 +36,11 @@ migrate-server: db-start
 	done
 	@echo "Running database migrations inside docker compose..."
 	# Using docker compose to run the migration script inside the api service, ensuring that the migrations are applied in the correct environment
-	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose run --rm api python migrations/apply_migrations.py
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose run --rm api migrations/apply_migrations.py
 
 # Running the application, checking if the virtual environment exists and using it if available
 run:
-	@if [ -d .venv ]; then \
-	# Using the virtual environment's Python interpreter to run the application if the virtual environment exists
-		.venv/bin/python3 app.py; \
-	else \
-	# Using the system's Python interpreter to run the application if the virtual environment does not exist
-		python3 app.py; \
-	fi
+	uv run python run.py
 
 # Linting the Dockerfile using hadolint to ensure it follows best practices and standards
 lint:
@@ -58,11 +48,7 @@ lint:
 
 # Running tests, checking if the virtual environment exists and using it if available
 test:
-	@if [ -d .venv ]; then \
-		PYTHONPATH=. .venv/bin/pytest -q; \
-	else \
-		PYTHONPATH=. pytest -q; \
-	fi
+	PYTHONPATH=. uv run pytest --ignore=actions-runner -q
 
 # Building the Docker image for the API service using docker compose
 docker-build:
@@ -95,11 +81,7 @@ run-server: db-start # db-start is a prerequisite to ensure the database is runn
 		$(MAKE) migrate; \
 		echo "Starting REST API locally..."; \
 	fi
-	@export LOG_FILE=$(HOST_LOG_DIR)/app.log && if [ -d .venv ]; then \
-		.venv/bin/python3 app.py; \
-	else \
-		python3 app.py; \
-	fi
+	@export LOG_FILE=$(HOST_LOG_DIR)/app.log && uv run python run.py
 
 # Running the REST API docker container, ensuring the database is ready and migrations are applied before starting the service in docker compose
 docker-run: docker-build db-start # db-start & docker-build are prerequisites to ensure the database is running and the Docker image is built before starting the API service
