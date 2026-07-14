@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from app import create_app
+from src.app import create_app
 
 
 @pytest.fixture()
@@ -13,7 +13,8 @@ def client(tmp_path):
     os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
     
     # Import the database instance to initialize the schema for testing
-    from app import db, create_app
+    from src.app.models import db
+    from src.app import create_app
     app = create_app()
     app.config["TESTING"] = True
     
@@ -65,3 +66,37 @@ def test_student_crud_flow(client):
 
     after_delete = client.get("/api/v1/students/1")
     assert after_delete.status_code == 404
+
+
+def test_duplicate_student_email(client):
+    # Create first student
+    response1 = client.post(
+        "/api/v1/students",
+        json={"name": "Alice", "email": "alice@example.com", "age": 20},
+    )
+    assert response1.status_code == 201
+
+    # Attempt to create second student with duplicate email
+    response2 = client.post(
+        "/api/v1/students",
+        json={"name": "Bob", "email": "alice@example.com", "age": 22},
+    )
+    assert response2.status_code == 409
+    assert "already exists" in response2.get_json()["error"]
+
+    # Create second student with unique email
+    response3 = client.post(
+        "/api/v1/students",
+        json={"name": "Bob", "email": "bob@example.com", "age": 22},
+    )
+    assert response3.status_code == 201
+    bob_id = response3.get_json()["id"]
+
+    # Attempt to update Bob's email to Alice's email
+    response4 = client.put(
+        f"/api/v1/students/{bob_id}",
+        json={"name": "Bob Updated", "email": "alice@example.com", "age": 23},
+    )
+    assert response4.status_code == 409
+    assert "already exists" in response4.get_json()["error"]
+

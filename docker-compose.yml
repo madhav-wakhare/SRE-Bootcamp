@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: postgres-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: students_db
+    ports:
+      - "5432:5432"
+    volumes:  
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - sre-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d students_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 2s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sre-student-api:${IMAGE_VERSION:-1.0.0}
+    restart: unless-stopped
+    container_name: sre-student-api
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/students_db
+      - PORT=5000
+      - LOG_FILE=/app/logs/app.log
+    volumes:
+      - /var/log/sre-student-api:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - sre-network
+
+
+volumes:
+  pgdata:
+
+networks:
+  sre-network:
+    external: true
