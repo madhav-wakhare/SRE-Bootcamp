@@ -38,10 +38,6 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Create .env file from secrets
-        run: |
-          echo "${{ secrets.ENV_FILE }}" > .env
-
       - name: Build API (Install Dependencies)
         run: |
           make install
