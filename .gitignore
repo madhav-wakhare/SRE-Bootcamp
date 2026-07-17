@@ -7,3 +7,5 @@ __pycache__/
 actions-runner/
 .vagrant/
 env
+*vault-keys.json
+vault.keys

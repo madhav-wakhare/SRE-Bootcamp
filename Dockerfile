@@ -28,8 +28,8 @@ COPY --from=builder /install /usr/local
 COPY run.py .
 COPY src/ src/
 COPY migrations/ migrations/
-# Create a non-root user and group with a static UID/GID (10001) for secure host file permission mapping
-RUN groupadd -g 10001 sre-student && useradd -r -u 10001 -g sre-student sre-student \
+# Create a non-root user and group (IDs auto-assigned)
+RUN groupadd sre-student && useradd -r -g sre-student sre-student \
     && chown -R sre-student:sre-student /app
 # Switch to the non-root user
 USER sre-student

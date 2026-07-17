@@ -100,3 +100,18 @@ def test_duplicate_student_email(client):
     assert response4.status_code == 409
     assert "already exists" in response4.get_json()["error"]
 
+
+def test_trace_id_header(client):
+    # Test that requests return an X-Trace-Id header
+    response = client.get("/healthcheck")
+    assert response.status_code == 200
+    assert "X-Trace-Id" in response.headers
+    trace_id = response.headers["X-Trace-Id"]
+    assert len(trace_id) > 0
+
+    # Test that passing an X-Trace-Id header returns the same trace ID
+    custom_trace_id = "test-trace-id-12345"
+    response2 = client.get("/healthcheck", headers={"X-Trace-Id": custom_trace_id})
+    assert response2.status_code == 200
+    assert response2.headers.get("X-Trace-Id") == custom_trace_id
+
