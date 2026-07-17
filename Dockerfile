@@ -24,17 +24,17 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 # Copy installed Python packages from the builder stage
 COPY --from=builder /install /usr/local
-# Copy the application source code and migrations
-# Copy the application source code (which contains run.py, app/ and migrations/)
+# Copy the application source code (which contains run.py, app/, migrations/ and entrypoint.sh)
 COPY src/ src/
 # Create a non-root user and group (IDs auto-assigned)
 RUN groupadd sre-student && useradd -r -g sre-student sre-student \
+    && chmod +x src/entrypoint.sh \
     && chown -R sre-student:sre-student /app
 # Switch to the non-root user
 USER sre-student
 # Expose default application port
 EXPOSE 5000
-# Set the entrypoint to run Python, allowing for flexibility in command execution
-ENTRYPOINT ["python"]
+# Set entrypoint to run migrations and database check on container startup
+ENTRYPOINT ["src/entrypoint.sh"]
 # Run the application script
-CMD ["src/run.py"]
+CMD ["python", "src/run.py"]
