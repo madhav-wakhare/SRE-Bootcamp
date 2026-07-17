@@ -24,7 +24,7 @@ db-start:
 
 # Running database migrations, checking if the virtual environment exists and using it if available
 migrate:
-	uv run python migrations/apply_migrations.py
+	uv run python src/migrations/apply_migrations.py
 
 # Running database migrations inside the docker compose environment, ensuring the database is ready before applying migrations
 migrate-server: db-start
@@ -36,11 +36,11 @@ migrate-server: db-start
 	done
 	@echo "Running database migrations inside docker compose..."
 	# Using docker compose to run the migration script inside the api service, ensuring that the migrations are applied in the correct environment
-	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose run --rm api migrations/apply_migrations.py
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose run --rm api src/migrations/apply_migrations.py
 
 # Running the application, checking if the virtual environment exists and using it if available
 run:
-	uv run python run.py
+	uv run python src/run.py
 
 # Linting the Dockerfile using hadolint to ensure it follows best practices and standards
 lint:
@@ -81,7 +81,7 @@ run-server: db-start # db-start is a prerequisite to ensure the database is runn
 		$(MAKE) migrate; \
 		echo "Starting REST API locally..."; \
 	fi
-	@export LOG_FILE=$(HOST_LOG_DIR)/app.log && uv run python run.py
+	@export LOG_FILE=$(HOST_LOG_DIR)/app.log && uv run python src/run.py
 
 # Running the REST API docker container, ensuring the database is ready and migrations are applied before starting the service in docker compose
 docker-run: docker-build db-start # db-start & docker-build are prerequisites to ensure the database is running and the Docker image is built before starting the API service
@@ -129,7 +129,7 @@ vagrant-migrate-server: vagrant-db-start
 		sleep 1; \
 	done
 	@echo "Running database migrations inside docker compose..."
-	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose -f docker-compose.vagrant.yml run --rm api1 migrations/apply_migrations.py
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose -f docker-compose.vagrant.yml run --rm api1 src/migrations/apply_migrations.py
 
 vagrant-run: vagrant-build vagrant-db-start
 	@echo "Ensuring host log directory exists and has permissions for container user (UID 10001) and Docker daemon group..."

@@ -114,4 +114,3 @@ def test_trace_id_header(client):
     response2 = client.get("/healthcheck", headers={"X-Trace-Id": custom_trace_id})
     assert response2.status_code == 200
     assert response2.headers.get("X-Trace-Id") == custom_trace_id
-

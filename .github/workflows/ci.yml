@@ -6,10 +6,7 @@ on:
       - develop
       - ci/cd
     paths:
-      - 'run.py'
       - 'src/**'
-      - 'migrations/**'
-      - 'tests/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'Dockerfile'
@@ -20,10 +17,7 @@ on:
       - ci/cd
       - main
     paths:
-      - 'run.py'
       - 'src/**'
-      - 'migrations/**'
-      - 'tests/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'Dockerfile'

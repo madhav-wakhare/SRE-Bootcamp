@@ -25,9 +25,8 @@ WORKDIR /app
 # Copy installed Python packages from the builder stage
 COPY --from=builder /install /usr/local
 # Copy the application source code and migrations
-COPY run.py .
+# Copy the application source code (which contains run.py, app/ and migrations/)
 COPY src/ src/
-COPY migrations/ migrations/
 # Create a non-root user and group (IDs auto-assigned)
 RUN groupadd sre-student && useradd -r -g sre-student sre-student \
     && chown -R sre-student:sre-student /app
@@ -38,4 +37,4 @@ EXPOSE 5000
 # Set the entrypoint to run Python, allowing for flexibility in command execution
 ENTRYPOINT ["python"]
 # Run the application script
-CMD ["run.py"]
+CMD ["src/run.py"]
