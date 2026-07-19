@@ -215,9 +215,10 @@ Our application stack is designed for production deployment on Kubernetes using 
    make vault-seed
    ```
 
-4. **Deploy External Secrets Operator Store**:
+4. **Deploy External Secrets Operator Store & External Secrets**:
    ```bash
    kubectl apply -f k8s/es-operator/cluster-secret-store.yml
+   kubectl apply -f k8s/es-operator/external-secret.yml
    ```
 
 5. **Deploy Database Component**:

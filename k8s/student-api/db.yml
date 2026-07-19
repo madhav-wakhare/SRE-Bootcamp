@@ -12,26 +12,6 @@ data:
   POSTGRES_USER: "postgres"
   POSTGRES_DB: "students_db"
 ---
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: postgres-db-external-secret
-  namespace: student-api
-spec:
-  refreshInterval: "1m"
-  secretStoreRef:
-    name: vault-one2n-store
-    kind: ClusterSecretStore
-  # Creates a Kubernetes ExternalSecret named "postgres-db-secret" in the "student-api" namespace
-  target:
-    name: postgres-db-secret
-    creationPolicy: Owner
-  data:
-    - secretKey: POSTGRES_PASSWORD # Create k8s secret key named "POSTGRES_PASSWORD" in the "postgres-db-secret" secret
-      remoteRef:
-        key: one2n/dev/app-config # Fetch the secret from Vault at the path "one2n/dev/app-config"
-        property: db_password # Fetch the value of the "POSTGRES_PASSWORD" property from the dev secret in Vault
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -41,7 +21,7 @@ metadata:
     app: postgres
 spec:
   serviceName: postgres-db
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: postgres
@@ -50,7 +30,6 @@ spec:
       labels:
         app: postgres
     spec:
-      # Ensure the database pod is scheduled only on Node B (database node)
       nodeSelector:
         type: database
       containers:
@@ -106,4 +85,3 @@ spec:
       targetPort: 5432
   selector:
     app: postgres
-

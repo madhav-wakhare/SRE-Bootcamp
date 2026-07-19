@@ -149,5 +149,9 @@ vault-seed:
 	@if [ -z "$(VAULT_POD)" ]; then echo "Vault pod not found!"; exit 1; fi
 	$(eval ROOT_TOKEN := $(shell python3 -c "import json; d=json.load(open('hashicorp-vault/vault-keys.json')); print(d['root_token'])"))
 	kubectl exec -n vault-ns $(VAULT_POD) -- env VAULT_TOKEN=$(ROOT_TOKEN) sh -c '\
-	  vault secrets enable -path=kv kv-v2 || true; \
-	  vault kv put kv/org/dev POSTGRES_PASSWORD="changeme" database_url="postgresql://postgres:changeme@postgres-db.student-api.svc.cluster.local:5432/students_db" || true'
+	  vault secrets enable -path=secret kv-v2 || true; \
+	  vault kv patch secret/one2n/dev/app-config \
+	    db_password="changeme" \
+	    db_url="postgresql://postgres:changeme@postgres-db.student-api.svc.cluster.local:5432/students_db" \
+	    database_url="postgresql://postgres:changeme@postgres-db.student-api.svc.cluster.local:5432/students_db" \
+	    dockerconfigjson="{\"auths\":{\"https://index.docker.io/v1/\":{\"username\":\"wakharemadhav\",\"password\":\"changeme\"}}}" || true'

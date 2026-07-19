@@ -7,9 +7,9 @@ metadata:
     component: auth
 subjects:
 - kind: ServiceAccount
-  name: vault-sa          # Your Vault service account
-  namespace: vault-ns     # Where Vault runs
+  name: vault-sa          
+  namespace: vault-ns     
 roleRef:
   kind: ClusterRole
-  name: vault-token-review  # References the ClusterRole above
+  name: vault-token-review  
   apiGroup: rbac.authorization.k8s.io
