@@ -52,24 +52,36 @@ jobs:
         run: |
           make test
 
+      - name: Set Commit Hash Environment Variable
+        run: |
+          echo "COMMIT_HASH=$(git rev-parse --short=7 HEAD)" >> $GITHUB_ENV
+
+      - name: Build Docker Image
+        run: |
+          echo "Building Docker image with version ${{ env.COMMIT_HASH }}..."
+          IMAGE_NAME=sre-student-api IMAGE_VERSION=${{ env.COMMIT_HASH }} make docker-build
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'sre-student-api:${{ env.COMMIT_HASH }}'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
       - name: Docker Login to Docker Hub
         run: |
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-      - name: Build and Push Docker Image
+      - name: Push Docker Image to Docker Hub
         run: |
-          # Get the 7-character commit hash for semantic versioning tag
-          COMMIT_HASH=$(git rev-parse --short=7 HEAD)
           DOCKER_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/sre-student-api"
-          
-          echo "Building Docker image..."
-          # Set the IMAGE_NAME to dockerhub destination and build the image
-          IMAGE_NAME=$DOCKER_IMAGE IMAGE_VERSION=$COMMIT_HASH make docker-build
-          
           echo "Tagging image for Docker Hub..."
-          docker tag sre-student-api:$COMMIT_HASH $DOCKER_IMAGE:$COMMIT_HASH
+          docker tag sre-student-api:${{ env.COMMIT_HASH }} $DOCKER_IMAGE:${{ env.COMMIT_HASH }}
           
-          echo "Pushing image $DOCKER_IMAGE:$COMMIT_HASH to Docker Hub..."
-          docker push $DOCKER_IMAGE:$COMMIT_HASH
+          echo "Pushing image $DOCKER_IMAGE:${{ env.COMMIT_HASH }} to Docker Hub..."
+          docker push $DOCKER_IMAGE:${{ env.COMMIT_HASH }}
 
 
