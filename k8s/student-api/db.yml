@@ -1,0 +1,109 @@
+apiVersion: v1 
+kind: Namespace
+metadata:
+  name: student-api
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-db-config
+  namespace: student-api
+data:
+  POSTGRES_USER: "postgres"
+  POSTGRES_DB: "students_db"
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: postgres-db-external-secret
+  namespace: student-api
+spec:
+  refreshInterval: "1m"
+  secretStoreRef:
+    name: vault-one2n-store
+    kind: ClusterSecretStore
+  # Creates a Kubernetes ExternalSecret named "postgres-db-secret" in the "student-api" namespace
+  target:
+    name: postgres-db-secret
+    creationPolicy: Owner
+  data:
+    - secretKey: POSTGRES_PASSWORD # Create k8s secret key named "POSTGRES_PASSWORD" in the "postgres-db-secret" secret
+      remoteRef:
+        key: one2n/dev/app-config # Fetch the secret from Vault at the path "one2n/dev/app-config"
+        property: db_password # Fetch the value of the "POSTGRES_PASSWORD" property from the dev secret in Vault
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-db
+  namespace: student-api
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres-db
+  replicas: 3
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      # Ensure the database pod is scheduled only on Node B (database node)
+      nodeSelector:
+        type: database
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-db-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-db-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-db-config
+                  key: POSTGRES_DB
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: "standard"
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db
+  namespace: student-api
+spec:
+  clusterIP: None
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: postgres
+

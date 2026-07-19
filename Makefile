@@ -109,12 +109,8 @@ vagrant-run: vagrant-build vagrant-db-start setup-host-logs wait-db
 
 # HashiCorp Vault Targets
 vault-apply:
-	kubectl apply -f hashicorp-vault/ns.yml
-	kubectl apply -f hashicorp-vault/sa.yml
-	kubectl apply -f hashicorp-vault/configmap.yml
-	kubectl apply -f hashicorp-vault/vault-rbac.yml
-	kubectl apply -f hashicorp-vault/statefulset.yml
-	kubectl apply -f hashicorp-vault/service.yml
+	@echo "Applying HashiCorp Vault Kubernetes manifests..."
+	kubectl apply -f hashicorp-vault/h-vault.yml
 
 vault-init:
 	@echo "Initializing Vault..."

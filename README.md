@@ -185,3 +185,55 @@ To execute the pipeline, configure a self-hosted runner on your local machine:
    ./run.sh
    ```
 
+---
+
+## Kubernetes (K8s) Deployment
+
+Our application stack is designed for production deployment on Kubernetes using Vault for secret management and External Secrets Operator (ESO) for dynamic secret injection.
+
+### Architecture & Directory Structure
+- `hashicorp-vault/`: Contains `h-vault.yml` deploying HashiCorp Vault in `vault-ns`.
+- `k8s/es-operator/`: Contains `cluster-secret-store.yml` and `external-secret.yml` for ESO integration.
+- `k8s/student-api/`: Contains `db.yml` (PostgreSQL StatefulSet & Secret) and `app.yml` (API Deployment, initContainer migrations, Service, HPA).
+
+### Deployment Order
+
+1. **Deploy HashiCorp Vault**:
+   ```bash
+   make vault-apply
+   ```
+
+2. **Initialize & Unseal Vault**:
+   ```bash
+   make vault-init
+   make vault-unseal
+   ```
+
+3. **Configure Vault K8s Auth & Seed Secrets**:
+   ```bash
+   make vault-setup-k8s-auth
+   make vault-seed
+   ```
+
+4. **Deploy External Secrets Operator Store**:
+   ```bash
+   kubectl apply -f k8s/es-operator/cluster-secret-store.yml
+   ```
+
+5. **Deploy Database Component**:
+   ```bash
+   kubectl apply -f k8s/student-api/db.yml
+   ```
+
+6. **Deploy Application Component**:
+   ```bash
+   kubectl apply -f k8s/student-api/app.yml
+   ```
+
+7. **Verify Deployment**:
+   ```bash
+   kubectl get pods -n student-api
+   curl http://<node-ip>:30080/healthcheck
+   ```
+
+
