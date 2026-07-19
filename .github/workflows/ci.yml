@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - ci/cd
+      - code-improvements
     paths:
       - 'src/**'
       - 'pyproject.toml'
@@ -16,6 +17,7 @@ on:
       - develop
       - ci/cd
       - main
+      - code-improvements
     paths:
       - 'src/**'
       - 'pyproject.toml'

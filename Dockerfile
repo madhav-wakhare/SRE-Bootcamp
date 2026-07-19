@@ -24,7 +24,8 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 # Copy installed Python packages from the builder stage
 COPY --from=builder /install /usr/local
-# Copy the application source code (which contains run.py, app/, migrations/ and entrypoint.sh)
+# Copy alembic.ini configuration and application source code (which contains run.py, app/, migrations/ and entrypoint.sh)
+COPY alembic.ini .
 COPY src/ src/
 # Create a non-root user and group (IDs auto-assigned)
 RUN groupadd sre-student && useradd -r -g sre-student sre-student \

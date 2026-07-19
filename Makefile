@@ -2,6 +2,7 @@ IMAGE_NAME ?= sre-student-api
 IMAGE_VERSION ?= 1.0.0
 COMPOSE_CMD ?= docker compose
 HOST_LOG_DIR ?= /var/log/sre-student-api
+PORT ?= 5001
 
 .PHONY: install run test migrate docker-build docker-run db-start lint migrate-server run-server \
         vagrant-build vagrant-migrate-server vagrant-run vagrant-db-start \
@@ -39,22 +40,23 @@ wait-db:
 	done
 	@echo "Database is ready."
 
-# Running database migrations locally
+# Running database migrations locally using Alembic
 migrate:
-	uv run python src/migrations/apply_migrations.py
+	@echo "Applying database schema migrations locally with Alembic..."
+	uv run alembic upgrade head
 
-# Running database migrations inside the docker compose environment
+# Running database migrations inside the docker compose environment using Alembic
 migrate-server: db-start wait-db
-	@echo "Running database migrations inside docker compose..."
-	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose run --rm api src/migrations/apply_migrations.py
+	@echo "Running database schema migrations inside docker compose with Alembic..."
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose run --rm api alembic upgrade head
 
 vagrant-migrate-server: vagrant-db-start wait-db
-	@echo "Running database migrations inside docker compose (vagrant)..."
-	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose -f docker-compose.vagrant.yml run --rm api1 src/migrations/apply_migrations.py
+	@echo "Running database schema migrations inside docker compose (vagrant) with Alembic..."
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_VERSION=$(IMAGE_VERSION) docker compose -f docker-compose.vagrant.yml run --rm api1 alembic upgrade head
 
 # Running the application locally
 run:
-	uv run python src/run.py
+	PORT=$(PORT) PYTHONPATH=. uv run python src/run.py
 
 # Linting the Dockerfile
 lint:
@@ -80,7 +82,7 @@ setup-host-logs:
 	@CONTAINER_UID=$$(docker run --rm --entrypoint id sre-student-api:$(IMAGE_VERSION) -u 2>/dev/null || echo 1000); \
 	CONTAINER_GID=$$(docker run --rm --entrypoint id sre-student-api:$(IMAGE_VERSION) -g 2>/dev/null || echo 1000); \
 	sudo chown -R $$CONTAINER_UID:$$CONTAINER_GID $(HOST_LOG_DIR)
-	@sudo chmod -R 770 $(HOST_LOG_DIR)
+	@sudo chmod -R 777 $(HOST_LOG_DIR)
 	@sudo chmod 660 $(HOST_LOG_DIR)/app.log $(HOST_LOG_DIR)/api1/app.log $(HOST_LOG_DIR)/api2/app.log
 
 # Running the server locally
@@ -92,7 +94,7 @@ run-server: db-start wait-db
 	@echo "Applying migrations..."
 	@$(MAKE) migrate
 	@echo "Starting REST API locally..."
-	@export LOG_FILE=$(HOST_LOG_DIR)/app.log && uv run python src/run.py
+	@export LOG_FILE=$(HOST_LOG_DIR)/app.log && PORT=$(PORT) PYTHONPATH=. uv run python src/run.py
 
 # Running the REST API docker container
 docker-run: docker-build db-start setup-host-logs wait-db
