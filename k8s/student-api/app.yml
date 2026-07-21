@@ -28,6 +28,7 @@ spec:
         - name: dockerhub-secret
       nodeSelector:
         type: application
+      # initContainers are used to run database migrations before the main application container starts. This ensures that the database schema is up-to-date before the application begins handling requests.
       initContainers:
         - name: run-migrations
           image: wakharemadhav/sre-student-api:bd10dca
@@ -109,6 +110,7 @@ metadata:
   namespace: student-api
 spec:
   type: NodePort
+  # The service exposes the application on port 5000 and maps it to a node port (30080) for external access. The selector ensures that the service routes traffic to the pods labeled with "app: student-api".
   ports:
     - port: 5000
       targetPort: 5000

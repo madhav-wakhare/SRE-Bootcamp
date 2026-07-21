@@ -1,0 +1,12 @@
+apiVersion: v2
+name: student-app
+description: Helm chart for the Student REST API and its PostgreSQL database
+type: application
+version: 1.0.0
+appVersion: "bd10dca"
+maintainers:
+  - name: madhav-wakhare
+keywords:
+  - student-api
+  - postgres
+  - rest-api

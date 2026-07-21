@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: student-api-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: student-api
+    {{- include "student-app.labels" . | nindent 4 }}
+data:
+  PORT: {{ .Values.studentApi.config.PORT | quote }}
+  LOG_FILE: {{ .Values.studentApi.config.LOG_FILE | quote }}

@@ -1,0 +1,18 @@
+Thank you for installing {{ .Chart.Name }} (release: {{ .Release.Name }}).
+
+Resources deployed to namespace: {{ .Values.namespace }}
+
+  StatefulSet : postgres-db-statefulset
+  Deployment  : student-api-deployment
+  Services    : postgres-db-svc (headless), student-api-svc (NodePort {{ .Values.studentApi.service.nodePort }})
+  ConfigMaps  : student-api-config, postgres-db-config
+  ExternalSecrets:
+    - student-api-external-secret  → {{ .Values.externalSecrets.dbUrl.targetSecret }}
+    - postgres-db-external-secret  → {{ .Values.externalSecrets.dbPassword.targetSecret }}
+    - dockerhub-external-secret    → {{ .Values.externalSecrets.dockerhub.targetSecret }}
+
+Access the Student API:
+  NodePort : http://<NODE_IP>:{{ .Values.studentApi.service.nodePort }}
+
+NOTE: Secrets are managed by External Secrets Operator and sourced from HashiCorp Vault.
+      Ensure the eso-vault chart (release: eso-backend) is deployed before this chart.

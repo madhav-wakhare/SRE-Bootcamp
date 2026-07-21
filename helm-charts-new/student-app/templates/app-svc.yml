@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: student-api-svc
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: student-api
+    {{- include "student-app.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.studentApi.service.type }}
+  ports:
+    - port: {{ .Values.studentApi.service.port }}
+      targetPort: {{ .Values.studentApi.service.targetPort }}
+      nodePort: {{ .Values.studentApi.service.nodePort }}
+  selector:
+    app: student-api

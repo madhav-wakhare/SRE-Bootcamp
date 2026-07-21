@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.vault.service.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: vault
+    {{- include "eso-vault.labels" . | nindent 4 }}
+spec:
+  # Headless service gives each StatefulSet pod a stable DNS identity
+  clusterIP: {{ .Values.vault.service.clusterIP }}
+  selector:
+    app: vault
+  ports:
+    - name: api
+      port: {{ .Values.vault.ports.api }}
+      targetPort: {{ .Values.vault.ports.api }}
+    - name: cluster
+      port: {{ .Values.vault.ports.cluster }}
+      targetPort: {{ .Values.vault.ports.cluster }}

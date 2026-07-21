@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: vault
+    {{- include "eso-vault.labels" . | nindent 4 }}
+data:
+  vault.hcl: |-
+    ui = true
+
+    # Disable mlock for containerised environments (required for Vault ≥ 2.0)
+    disable_mlock = true
+
+    listener "tcp" {
+      address     = "0.0.0.0:{{ .Values.vault.ports.api }}"
+      tls_disable = 1
+    }
+
+    storage "raft" {
+      path = "/vault/data"
+    }
+
+    api_addr     = "{{ .Values.vault.config.apiAddr }}"
+    cluster_addr = "{{ .Values.vault.config.clusterAddr }}"

@@ -7,7 +7,9 @@ PORT ?= 5001
 .PHONY: install run test migrate docker-build docker-run db-start lint migrate-server run-server \
         vagrant-build vagrant-migrate-server vagrant-run vagrant-db-start \
         vault-apply vault-init vault-unseal vault-setup-k8s-auth vault-seed \
-        ensure-network wait-db setup-host-logs
+        ensure-network wait-db setup-host-logs \
+        helm-lint helm-install-postgres helm-install-vault helm-install-external-secrets \
+        helm-install-student-api helm-install-all helm-uninstall-all helm-package helm-vault-reset
 
 # Installing dependencies for the project
 install:
@@ -126,7 +128,7 @@ vault-unseal:
 	kubectl exec -n vault-ns $(VAULT_POD) -- vault operator unseal $(UNSEAL_KEY)
 
 vault-setup-k8s-auth:
-	$(eval VAULT_POD := $(shell kubectl get pod -n vault-ns -l app=vault -o jsonpath='{.items[0].metadata.name}' 2>/dev/null))
+	$(eval VAULT_POD := $(shell kubectl get pod -n vault-ns -o jsonpath='{.items[0].metadata.name}' 2>/dev/null))
 	@if [ -z "$(VAULT_POD)" ]; then echo "Vault pod not found!"; exit 1; fi
 	$(eval ROOT_TOKEN := $(shell python3 -c "import json; d=json.load(open('hashicorp-vault/vault-keys.json')); print(d['root_token'])"))
 	kubectl exec -n vault-ns $(VAULT_POD) -- env VAULT_TOKEN=$(ROOT_TOKEN) sh -c '\
@@ -135,9 +137,7 @@ vault-setup-k8s-auth:
 	    kubernetes_host="https://$$KUBERNETES_SERVICE_HOST:$$KUBERNETES_SERVICE_PORT" \
 	    kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
 	    issuer="https://kubernetes.default.svc.cluster.local" || true; \
-	  vault policy write eso-policy - <<EOF\n\
-path "kv/data/org/*" { capabilities = ["read"] }\n\
-EOF\n\
+	  echo "path \"secret/data/*\" { capabilities = [\"read\"] }" | vault policy write eso-policy -; \
 	  vault write auth/kubernetes/role/eso-role \
 	    bound_service_account_names=external-secrets \
 	    bound_service_account_namespaces=external-secrets-ns \
@@ -145,13 +145,85 @@ EOF\n\
 	    ttl=1h'
 
 vault-seed:
-	$(eval VAULT_POD := $(shell kubectl get pod -n vault-ns -l app=vault -o jsonpath='{.items[0].metadata.name}' 2>/dev/null))
+	$(eval VAULT_POD := $(shell kubectl get pod -n vault-ns -o jsonpath='{.items[0].metadata.name}' 2>/dev/null))
 	@if [ -z "$(VAULT_POD)" ]; then echo "Vault pod not found!"; exit 1; fi
 	$(eval ROOT_TOKEN := $(shell python3 -c "import json; d=json.load(open('hashicorp-vault/vault-keys.json')); print(d['root_token'])"))
 	kubectl exec -n vault-ns $(VAULT_POD) -- env VAULT_TOKEN=$(ROOT_TOKEN) sh -c '\
 	  vault secrets enable -path=secret kv-v2 || true; \
-	  vault kv patch secret/one2n/dev/app-config \
+	  vault kv put secret/one2n/dev/app-config \
 	    db_password="changeme" \
-	    db_url="postgresql://postgres:changeme@postgres-db.student-api.svc.cluster.local:5432/students_db" \
-	    database_url="postgresql://postgres:changeme@postgres-db.student-api.svc.cluster.local:5432/students_db" \
+	    db_url="postgresql://postgres:changeme@postgres-db-postgres-db.student-api.svc.cluster.local:5432/students_db" \
+	    database_url="postgresql://postgres:changeme@postgres-db-postgres-db.student-api.svc.cluster.local:5432/students_db" \
+	    dockerconfigjson="{\"auths\":{\"https://index.docker.io/v1/\":{\"username\":\"wakharemadhav\",\"password\":\"changeme\"}}}" || true; \
+	  vault kv put secret/eso/one2n/dev/app-config \
+	    db_password="changeme" \
+	    db_url="postgresql://postgres:changeme@postgres-db-postgres-db.student-api.svc.cluster.local:5432/students_db" \
+	    database_url="postgresql://postgres:changeme@postgres-db-postgres-db.student-api.svc.cluster.local:5432/students_db" \
 	    dockerconfigjson="{\"auths\":{\"https://index.docker.io/v1/\":{\"username\":\"wakharemadhav\",\"password\":\"changeme\"}}}" || true'
+
+# Helm Targets
+helm-lint:
+	@echo "Linting all Helm charts..."
+	helm lint helm-charts/hashicorp-vault
+	helm lint helm-charts/student-api
+
+helm-install-vault:
+	@echo "Deploying HashiCorp Vault & ESO setup using Helm..."
+	@echo "  (--wait blocks until Vault pod is ready AND post-install hook completes)"
+	helm upgrade --install vault ./helm-charts/hashicorp-vault \
+		--namespace vault-ns --create-namespace \
+		--wait --timeout 3m
+
+helm-install-external-secrets: helm-install-vault
+
+helm-install-postgres: helm-install-student-api
+
+helm-install-student-api:
+	@echo "Deploying REST API & PostgreSQL database using Helm..."
+	helm upgrade --install student-api ./helm-charts/student-api \
+		--namespace student-api --create-namespace \
+		--wait --timeout 2m
+
+helm-install-all: helm-install-vault
+	@echo "Waiting for ESO to sync secrets from Vault into student-api namespace..."
+	@for i in $$(seq 1 24); do \
+		COUNT=$$(kubectl get secrets -n student-api --no-headers 2>/dev/null | grep -c "^eso-" || echo 0); \
+		if [ "$$COUNT" -ge 3 ]; then \
+			echo "ESO secrets synced ($$COUNT found)."; break; \
+		fi; \
+		echo "  Waiting for ESO secrets... ($$COUNT/3 ready, attempt $$i/24)"; \
+		sleep 5; \
+	done
+	@echo "Deploying Student API & PostgreSQL database..."
+	@$(MAKE) helm-install-student-api
+	@echo "All services successfully deployed in order!"
+
+# Wipe stale/sealed Vault data and re-deploy from scratch
+# Use this when: Vault is initialized but keys secret is missing,
+#                or Vault is stuck in a broken state
+helm-vault-reset:
+	@echo "WARNING: This will delete all Vault data and secrets!"
+	@echo "Scaling down Vault StatefulSet..."
+	kubectl scale statefulset vault-vault -n vault-ns --replicas=0 2>/dev/null || true
+	@sleep 5
+	@echo "Deleting Vault PVC (wipes all Vault data)..."
+	kubectl delete pvc vault-data-vault-vault-0 -n vault-ns 2>/dev/null || true
+	@echo "Deleting stale setup hook job..."
+	kubectl delete job vault-vault-setup-hook -n vault-ns 2>/dev/null || true
+	@echo "Deleting old ClusterSecretStore (if renamed)..."
+	kubectl delete clustersecretstore vault-vault-one2n-store 2>/dev/null || true
+	@echo "Re-deploying Vault..."
+	@$(MAKE) helm-install-vault
+
+helm-uninstall-all:
+	@echo "Uninstalling all Helm releases..."
+	helm uninstall student-api --namespace student-api || true
+	helm uninstall vault --namespace vault-ns || true
+
+helm-package:
+	@echo "Packaging all Helm charts into dist/ directory..."
+	@mkdir -p dist
+	helm package helm-charts/hashicorp-vault --destination dist/
+	helm package helm-charts/student-api --destination dist/
+
+

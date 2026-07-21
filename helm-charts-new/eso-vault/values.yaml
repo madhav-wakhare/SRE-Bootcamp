@@ -1,0 +1,70 @@
+# eso-vault — values.yaml
+# Release name: eso-backend
+# Namespace for Vault
+namespace: vault
+
+# HashiCorp Vault (StatefulSet)
+vault:
+  image:
+    repository: hashicorp/vault
+    tag: "2.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  # nodeSelector label for dependent-service nodes
+  nodeSelector:
+    type: dependent_services
+
+  storageClass: standard
+  storageSize: 1Gi
+
+  # Service account name created for Vault pods
+  serviceAccountName: vault-sa
+
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  # Vault configuration (vault.hcl rendered into a ConfigMap)
+  config:
+    # Internal cluster service FQDN used in vault.hcl
+    apiAddr: "http://prod-vault-svc.vault.svc.cluster.local:8200"
+    clusterAddr: "http://prod-vault-svc.vault.svc.cluster.local:8201"
+
+  # Vault API & cluster port
+  ports:
+    api: 8200
+    cluster: 8201
+
+  service:
+    # Name convention: prod-vault-svc
+    name: prod-vault-svc
+    # Headless service for StatefulSet stable DNS
+    clusterIP: None
+
+# ClusterRole & ClusterRoleBinding for Vault token review (Kubernetes auth)
+rbac:
+  clusterRole:
+    name: vault-token-review
+  clusterRoleBinding:
+    name: vault-token-review
+
+# ClusterSecretStore (ESO — cluster-scoped)
+clusterSecretStore:
+  name: vault-one2n-store
+  vaultServer: "http://prod-vault-svc.vault.svc.cluster.local:8200"
+  vaultPath: "secret"
+  vaultVersion: "v2"
+  # Kubernetes auth mount path configured in Vault
+  mountPath: "kubernetes"
+  # Vault auth role for ESO
+  role: "eso-role"
+  # ESO's own service account used for token review
+  esoServiceAccount:
+    name: "external-secrets"
+    namespace: "external-secrets-ns"

@@ -237,4 +237,35 @@ Our application stack is designed for production deployment on Kubernetes using 
    curl http://<node-ip>:30080/healthcheck
    ```
 
+---
 
+## Helm Chart Deployment
+
+We provide consolidated Helm charts for deploying the application stack under the `helm-charts/` directory:
+
+### Directory Structure
+- `helm-charts/hashicorp-vault/`: Combined chart for HashiCorp Vault (StatefulSet, ConfigMap, Services, RBAC, Post-install setup hook) and External Secrets Operator (ESO ClusterSecretStore, ExternalSecrets, Token Review RBAC).
+- `helm-charts/student-api/`: Combined chart for Student REST API (Deployment, Service, ConfigMap) and PostgreSQL Database (StatefulSet, Service, ConfigMap, PVC).
+
+### Deployment Using Helm
+
+1. **Lint the Helm Charts**:
+   ```bash
+   make helm-lint
+   ```
+
+2. **Deploy Entire Stack**:
+   ```bash
+   make helm-install-all
+   ```
+
+3. **Package the Helm Charts**:
+   To package the charts into versioned `.tgz` archives inside a `dist/` directory:
+   ```bash
+   make helm-package
+   ```
+
+4. **Uninstall Stack**:
+   ```bash
+   make helm-uninstall-all
+   ```
