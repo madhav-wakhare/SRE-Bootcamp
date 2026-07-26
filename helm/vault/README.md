@@ -16,6 +16,21 @@ through External Secrets Operator (ESO).
 | Service | `vault` | ClusterIP — the address every other component talks to |
 | Service | `vault-headless` | Headless, governs the StatefulSet, gives the pod a stable DNS name for its own `VAULT_CLUSTER_ADDR` |
 
+## Why two Services (and `postgres-db` only has one)
+
+These two Services serve different audiences, not the same one twice:
+
+| Service | Type | Used by | Why |
+| --- | --- | --- | --- |
+| `vault` | ClusterIP | External clients — ESO, via `eso-config`'s `clusterSecretStore.vault.server` | A stable virtual IP that kube-proxy load-balances to a **ready** pod only |
+| `vault-headless` | headless (`clusterIP: None`) | The StatefulSet itself, and Vault pods talking to each other | Required by Kubernetes for a StatefulSet's `serviceName` — gives each pod its own resolvable DNS name |
+
+The headless Service isn't optional: `statefulset.yaml`'s `serviceName` field points at it, and Kubernetes requires every StatefulSet to be governed by one. That's what makes `vault-0.vault-headless.vault.svc.cluster.local` resolvable — the address used for `VAULT_CLUSTER_ADDR`, i.e. how Vault nodes would reach each other over Raft if this ever scaled beyond one replica.
+
+The detail that matters even at `replicaCount: 1`: only `vault-headless` sets `publishNotReadyAddresses: true` (see `templates/service.yaml`). That's needed so a Vault pod still joining Raft — and therefore not yet passing its readiness probe — can still be found by its peers over DNS. But that's exactly the property you don't want for client traffic: if ESO were pointed at the headless address, it could get routed straight to a sealed, crashed, or still-starting pod. The plain `vault` ClusterIP Service has no such override, so it follows normal Kubernetes behavior — only ready pods appear in its Endpoints, and a sealed/crashed Vault gives ESO a clean "no endpoint" failure instead of a hang.
+
+**`postgres-db` only has one Service** (headless, no ClusterIP) because it has neither of the two reasons above: it always runs a single replica with no peer-to-peer clustering protocol, so there's no second pod to discover and no load-balancing decision to make — one stable DNS name covers both jobs. Vault's Raft-based clustering is what earns it the second Service; if `postgres-db` ever grew real multi-node replication, it would likely need the same split.
+
 ## How it connects to the rest of the stack
 
 ```

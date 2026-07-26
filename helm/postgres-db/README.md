@@ -11,7 +11,7 @@ never stores `POSTGRES_PASSWORD` itself — it is synced in from Vault by an
 | ConfigMap | `postgres-db-config` | Non-sensitive settings: `POSTGRES_USER`, `POSTGRES_DB` |
 | ExternalSecret | `postgres-db` | Pulls `db_password` from Vault, writes it into a Secret as `POSTGRES_PASSWORD` |
 | StatefulSet | `postgres-db` | Runs `postgres:17-alpine`, one replica, with a `pg_isready` readiness/liveness probe |
-| Service | `postgres-db` | Headless — gives the pod a stable DNS name, no load balancing needed for a single writer |
+| Service | `postgres-db` | Headless — gives the pod a stable DNS name, no load balancing needed for a single writer (see the `vault` chart's README for why *that* chart needs a second, non-headless Service and this one doesn't) |
 | PersistentVolumeClaim (via `volumeClaimTemplates`) | `data-postgres-db-0` | 1Gi by default, retained on `helm uninstall` |
 
 ## How it connects to the rest of the stack
