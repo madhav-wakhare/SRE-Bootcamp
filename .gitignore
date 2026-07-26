@@ -33,3 +33,7 @@ logs/
 # CI / Vagrant & runner artifacts
 actions-runner/
 .vagrant/
+
+# Packaged Helm charts (build output of `make helm-package`).
+# Vendored subcharts under helm/*/charts/ ARE committed on purpose.
+dist/

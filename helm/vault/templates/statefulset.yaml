@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vault.fullname" . }}
+  labels:
+    {{- include "vault.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "vault.headlessServiceName" . }}
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vault.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod whenever vault.hcl changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "vault.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "vault.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.persistence.enabled .Values.initContainer.enabled }}
+      initContainers:
+        # Freshly provisioned volumes are owned by root; Vault runs as 100:1000.
+        - name: fix-permissions
+          image: {{ .Values.initContainer.image }}
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - mkdir -p {{ .Values.persistence.mountPath }} && chown -R 100:1000 {{ .Values.persistence.mountPath }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+      {{- end }}
+      containers:
+        - name: vault
+          image: {{ include "vault.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK"]
+          command: ["vault"]
+          args: ["server", "-config=/vault/config/vault.hcl"]
+          ports:
+            - name: api
+              containerPort: {{ .Values.ports.api }}
+            - name: cluster
+              containerPort: {{ .Values.ports.cluster }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # Used by `kubectl exec ... vault <cmd>` so the CLI talks to itself.
+            - name: VAULT_ADDR
+              value: "http://127.0.0.1:{{ .Values.ports.api }}"
+            - name: VAULT_API_ADDR
+              value: "http://$(POD_IP):{{ .Values.ports.api }}"
+            # $(HOSTNAME) is the pod name, so this is the pod's stable FQDN.
+            - name: VAULT_CLUSTER_ADDR
+              value: "https://$(HOSTNAME).{{ include "vault.headlessServiceName" . }}:{{ .Values.ports.cluster }}"
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /vault/config
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "vault.fullname" . }}-config
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [{{ .Values.persistence.accessMode | quote }}]
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}

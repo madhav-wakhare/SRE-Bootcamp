@@ -1,0 +1,79 @@
+# -----------------------------------------------------------------------------
+# helm/postgres-db — default values
+#
+# Install with:
+#   helm upgrade --install postgres-db ./helm/postgres-db -n student-api --create-namespace
+#
+# Installing with the release name "postgres-db" keeps the resource names short,
+# so the service resolves as:
+#   postgres-db.student-api.svc.cluster.local:5432
+# That hostname is baked into the db_url stored in Vault, so if you change the
+# release name you must reseed Vault (`make vault-seed`).
+# -----------------------------------------------------------------------------
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: postgres
+  # Empty tag falls back to .Chart.AppVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The bootcamp cluster labels its database nodes with type=database.
+nodeSelector:
+  type: database
+
+tolerations: []
+affinity: {}
+podAnnotations: {}
+
+service:
+  # Headless: a StatefulSet needs a governing service, and a single Postgres pod
+  # is addressed directly rather than load balanced.
+  headless: true
+  port: 5432
+
+# Non-sensitive settings, rendered into a ConfigMap.
+config:
+  POSTGRES_USER: postgres
+  POSTGRES_DB: students_db
+
+persistence:
+  enabled: true
+  storageClass: standard
+  size: 1Gi
+  accessMode: ReadWriteOnce
+  mountPath: /var/lib/postgresql/data
+
+# POSTGRES_PASSWORD is never stored in this chart. ESO pulls it out of Vault and
+# writes it into a Secret, which the StatefulSet then reads.
+externalSecrets:
+  enabled: true
+  refreshInterval: 1m
+  # Must match `clusterSecretStore.name` in the eso-config chart.
+  secretStore: vault-backend
+  # KV path in Vault holding the application secrets.
+  remoteKey: one2n/dev/app-config
+  # Property inside that KV entry holding the Postgres password.
+  remoteProperty: db_password
+  # Name of the Secret ESO creates (defaults to <fullname>-secret).
+  targetSecretName: ""
+
+# When ESO is disabled, point the chart at a Secret you manage yourself.
+existingSecret:
+  name: ""
+  key: POSTGRES_PASSWORD
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+probes:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 10

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: postgres-db
+description: PostgreSQL StatefulSet backing the Student REST API, with its password sourced from Vault via External Secrets Operator
+type: application
+version: 1.0.0
+appVersion: "17-alpine"
+maintainers:
+  - name: madhav-wakhare
+keywords:
+  - postgres
+  - postgresql
+  - database

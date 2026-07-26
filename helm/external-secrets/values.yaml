@@ -1,0 +1,40 @@
+# -----------------------------------------------------------------------------
+# helm/external-secrets — values forwarded to the upstream ESO subchart.
+#
+# Install with:
+#   helm dependency build ./helm/external-secrets     # only after changing Chart.yaml
+#   helm upgrade --install external-secrets ./helm/external-secrets \
+#     -n eso-ns --create-namespace
+#
+# Everything under the `external-secrets:` key belongs to the upstream chart, so
+# see https://github.com/external-secrets/external-secrets for the full list.
+# -----------------------------------------------------------------------------
+external-secrets:
+  # The CRDs (ExternalSecret, ClusterSecretStore, ...) ship with the operator.
+  installCRDs: true
+  crds:
+    createClusterExternalSecret: true
+    createClusterSecretStore: true
+
+  # ESO authenticates to Vault with this ServiceAccount's token, so its name and
+  # namespace must match the Vault Kubernetes auth role bound in
+  # `make vault-configure` and the serviceAccountRef in the eso-config chart.
+  serviceAccount:
+    create: true
+    name: external-secrets
+
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+  webhook:
+    replicaCount: 1
+
+  certController:
+    replicaCount: 1

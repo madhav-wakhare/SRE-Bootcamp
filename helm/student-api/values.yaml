@@ -1,0 +1,104 @@
+# -----------------------------------------------------------------------------
+# helm/student-api — default values
+#
+# Install with:
+#   helm upgrade --install student-api ./helm/student-api -n student-api --create-namespace
+#
+# Depends on: the postgres-db release, an unsealed Vault, and the eso-config
+# ClusterSecretStore. The database host is not configured here — it is part of
+# the db_url stored in Vault (see `make vault-seed`).
+# -----------------------------------------------------------------------------
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: wakharemadhav/sre-student-api
+  # Empty tag falls back to .Chart.AppVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The bootcamp cluster labels its application nodes with type=application.
+nodeSelector:
+  type: application
+
+tolerations: []
+affinity: {}
+podAnnotations: {}
+
+# Port the Flask app listens on inside the container.
+containerPort: 5000
+
+service:
+  type: NodePort
+  port: 5000
+  # Fixed NodePort so the API keeps the same URL across reinstalls.
+  nodePort: 30080
+
+# Non-sensitive settings, rendered into a ConfigMap.
+config:
+  PORT: "5000"
+  LOG_FILE: /app/logs/app.log
+
+# Alembic runs to completion before the app container starts, so the app never
+# serves traffic against an out-of-date schema.
+migrations:
+  enabled: true
+  command: ["python", "src/migrations/apply_migrations.py"]
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# DATABASE_URL is never stored in this chart. ESO pulls it out of Vault and
+# writes it into a Secret, which the pod then reads.
+externalSecrets:
+  enabled: true
+  refreshInterval: 1m
+  # Must match `clusterSecretStore.name` in the eso-config chart.
+  secretStore: vault-backend
+  # KV path in Vault holding the application secrets.
+  remoteKey: one2n/dev/app-config
+  databaseUrl:
+    # Property inside that KV entry holding the SQLAlchemy connection string.
+    remoteProperty: db_url
+    # Name of the Secret ESO creates (defaults to <fullname>-db-url).
+    targetSecretName: ""
+
+# When ESO is disabled, point the chart at a Secret you manage yourself.
+existingSecret:
+  name: ""
+  key: DATABASE_URL
+
+# The image is public, so no pull secret is needed. Enable this to have ESO build
+# a kubernetes.io/dockerconfigjson Secret from Vault instead — required only if
+# you push the image to a private repository.
+imagePullSecret:
+  enabled: false
+  # Property in Vault holding the full ~/.docker/config.json document.
+  remoteProperty: dockerconfigjson
+  # Name of the Secret ESO creates (defaults to <fullname>-registry).
+  targetSecretName: ""
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+probes:
+  enabled: true
+  path: /healthcheck
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 20

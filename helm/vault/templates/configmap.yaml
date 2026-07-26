@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vault.fullname" . }}-config
+  labels:
+    {{- include "vault.labels" . | nindent 4 }}
+data:
+  vault.hcl: |-
+    ui = true
+
+    # Containers cannot lock memory pages, so mlock must be disabled.
+    disable_mlock = true
+
+    listener "tcp" {
+      address     = "0.0.0.0:{{ .Values.ports.api }}"
+      tls_disable = 1
+    }
+
+    storage "raft" {
+      path = {{ .Values.persistence.mountPath | quote }}
+    }
+
+    # api_addr / cluster_addr are injected as VAULT_API_ADDR and
+    # VAULT_CLUSTER_ADDR env vars in the StatefulSet, because they depend on the
+    # pod's own identity, which is only known at runtime.
+    {{- with .Values.extraConfig }}
+
+    {{ . | nindent 4 | trim }}
+    {{- end }}
