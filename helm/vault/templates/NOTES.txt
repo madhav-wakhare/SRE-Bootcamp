@@ -1,0 +1,20 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} was installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+In-cluster API address (this is what the ClusterSecretStore must point at):
+
+    http://{{ include "vault.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+A brand new Vault is sealed and holds no secrets. Finish the setup with:
+
+    make vault-init       # initialise, writes unseal key + root token to hashicorp-vault/vault-keys.json (gitignored)
+    make vault-unseal     # unseal using that key
+    make vault-configure  # enable the KV v2 engine and the Kubernetes auth role used by ESO
+    make vault-seed       # write the application secrets under secret/one2n/dev/app-config
+
+Check the status at any time with:
+
+    kubectl exec -n {{ .Release.Namespace }} {{ include "vault.fullname" . }}-0 -c vault -- vault status
+
+Vault must be unsealed before the eso-config and student-api releases can sync
+any secret. Vault seals itself again on every pod restart — rerun `make
+vault-unseal` after a restart.

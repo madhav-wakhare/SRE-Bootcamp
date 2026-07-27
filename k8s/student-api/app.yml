@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: student-api-config
+  namespace: student-api
+data:
+  PORT: "5000"
+  LOG_FILE: "/app/logs/app.log"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: student-api
+  namespace: student-api
+  labels:
+    app: student-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: student-api
+  template:
+    metadata:
+      labels:
+        app: student-api
+    spec:
+      imagePullSecrets:
+        - name: dockerhub-secret
+      nodeSelector:
+        type: application
+      # initContainers are used to run database migrations before the main application container starts. This ensures that the database schema is up-to-date before the application begins handling requests.
+      initContainers:
+        - name: run-migrations
+          image: wakharemadhav/sre-student-api:bd10dca
+          command: ["python", "src/migrations/apply_migrations.py"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: student-db-url-secret
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+      containers:
+        - name: student-api
+          image: wakharemadhav/sre-student-api:bd10dca
+          ports:
+            - containerPort: 5000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: student-db-url-secret
+                  key: DATABASE_URL
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: student-api-config
+                  key: PORT
+            - name: LOG_FILE
+              valueFrom:
+                configMapKeyRef:
+                  name: student-api-config
+                  key: LOG_FILE
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          # readinessProbe:
+          #   httpGet:
+          #     path: /healthcheck
+          #     port: 5000
+          #   initialDelaySeconds: 5
+          #   periodSeconds: 10
+          # livenessProbe:
+          #   httpGet:
+          #     path: /healthcheck
+          #     port: 5000
+          #   initialDelaySeconds: 15
+          #   periodSeconds: 20
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: student-api-service
+  namespace: student-api
+spec:
+  type: NodePort
+  # The service exposes the application on port 5000 and maps it to a node port (30080) for external access. The selector ensures that the service routes traffic to the pods labeled with "app: student-api".
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30080
+  selector:
+    app: student-api

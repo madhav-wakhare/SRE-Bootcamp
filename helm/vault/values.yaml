@@ -1,0 +1,79 @@
+# -----------------------------------------------------------------------------
+# helm/vault — default values
+#
+# Install with:
+#   helm upgrade --install vault ./helm/vault -n vault --create-namespace
+#
+# The namespace is deliberately NOT templated inside this chart. Helm best
+# practice is to take it from `helm --namespace`, which keeps the chart reusable.
+# -----------------------------------------------------------------------------
+
+# Override the generated resource names (default: <release>-<chart>).
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: hashicorp/vault
+  # Empty tag falls back to .Chart.AppVersion — keeps image and chart in sync.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# The bootcamp cluster labels its dependency nodes with type=dependent_services.
+nodeSelector:
+  type: dependent_services
+
+tolerations: []
+affinity: {}
+podAnnotations: {}
+
+serviceAccount:
+  create: true
+  # Empty name falls back to the chart fullname.
+  name: ""
+
+# RBAC needed by Vault's Kubernetes auth method: Vault calls the TokenReview API
+# to validate the ServiceAccount tokens presented by its clients (i.e. ESO).
+rbac:
+  create: true
+
+ports:
+  api: 8200
+  cluster: 8201
+
+service:
+  type: ClusterIP
+  port: 8200
+
+persistence:
+  enabled: true
+  storageClass: standard
+  size: 1Gi
+  accessMode: ReadWriteOnce
+  mountPath: /vault/data
+
+# Extra HCL appended verbatim to the generated vault.hcl.
+extraConfig: ""
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Vault runs as uid 100 / gid 1000 — fsGroup makes the Raft volume writable.
+podSecurityContext:
+  fsGroup: 1000
+
+# Runs before Vault to chown the Raft data directory on freshly created volumes.
+initContainer:
+  enabled: true
+  image: busybox:1.36
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 5

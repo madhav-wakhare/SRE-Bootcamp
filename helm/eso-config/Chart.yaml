@@ -1,0 +1,13 @@
+apiVersion: v2
+name: eso-config
+description: ClusterSecretStore that lets External Secrets Operator read secrets from HashiCorp Vault using Kubernetes auth
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: madhav-wakhare
+keywords:
+  - external-secrets
+  - eso
+  - vault
+  - secrets-management

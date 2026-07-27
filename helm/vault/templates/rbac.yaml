@@ -1,0 +1,35 @@
+{{- if .Values.rbac.create }}
+{{/*
+ClusterRole and ClusterRoleBinding are cluster scoped, so their names include
+the release namespace as well as the release name to stay globally unique.
+*/}}
+{{- $name := printf "%s-%s-tokenreview" (include "vault.fullname" .) .Release.Namespace }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "vault.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "vault.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "vault.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

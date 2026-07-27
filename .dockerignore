@@ -9,20 +9,34 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Ignore local database files
+# Ignore local database & log files
 *.db
 *.sqlite
+logs/
+*.log
 
 # Ignore local configuration and secrets
 .env
+env
+*vault-keys.json
+vault.keys
 
-# Ignore version control
+# Ignore version control & IDE
 .git/
 .gitignore
+.DS_Store
 
-# Ignore tests and local utilities
+# Ignore tests & test caches (including src/tests/)
 tests/
+src/tests/
 .pytest_cache/
+
+# Ignore Kubernetes, Vagrant, and Vault operational assets
+k8s/
+hashicorp-vault/
+.vagrant/
+Vagrantfile
+actions-runner/
 postman_collection.json
 Makefile
 README.md
