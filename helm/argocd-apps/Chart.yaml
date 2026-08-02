@@ -1,0 +1,16 @@
+apiVersion: v2
+name: argocd-apps
+description: >-
+  Declarative Argo CD configuration for this repository — the AppProject, the
+  git repository registration, and one Application per Helm chart under helm/.
+  Installed once to bootstrap GitOps; from then on Argo CD keeps it in sync with
+  git through its own root Application.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: madhav-wakhare
+keywords:
+  - argocd
+  - gitops
+  - app-of-apps

@@ -1,0 +1,32 @@
+# Values for the argocd-apps chart.
+#
+# Install with:
+#   helm upgrade --install argocd-apps ./helm/argocd-apps -n argocd
+#
+# This chart has no workload of its own. It creates the Argo CD objects that
+# describe what Argo CD should deploy: the AppProject, the git repository
+# registration, and one Application per chart under helm/.
+
+# The git repository Argo CD deploys from. It is also the only repository the
+# AppProject allows as a source.
+repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
+
+# Branch (or tag, or commit) Argo CD tracks. This must be the branch the CI
+# "update-image-tag" job commits the new image tag to.
+# Override per install: make argocd-apps-install ARGOCD_REVISION=<branch>
+targetRevision: main
+
+# Name of the AppProject every Application below belongs to.
+project: sre-bootcamp
+
+# Namespaces the project is allowed to deploy into.
+namespaces:
+  - argocd
+  - eso-ns
+  - vault
+  - student-api
+
+# The root Application (app-of-apps) makes Argo CD manage this chart itself, so
+# the Applications are kept in sync from git after the first install. Set to
+# false for the very first install, before this chart exists on the branch above.
+rootApp: true

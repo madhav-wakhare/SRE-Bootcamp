@@ -1,0 +1,111 @@
+# Values for the argocd chart.
+#
+# Install with:
+#   helm upgrade --install argocd ./helm/argocd -n argocd --create-namespace
+#
+# This chart has no templates of its own — everything under `argo-cd:` is passed
+# to the upstream Argo CD chart vendored in charts/. See
+# https://github.com/argoproj/argo-helm for the full list of keys.
+argo-cd:
+  global:
+    # Pins every Argo CD component to the dependent services node. The upstream
+    # chart applies this to all its workloads, so there is nothing to repeat
+    # per component.
+    nodeSelector:
+      type: dependent_services
+
+  crds:
+    install: true
+    # Keep the CRDs on `helm uninstall`, so reinstalling Argo CD does not delete
+    # every Application object (and the workloads they manage) on the way.
+    keep: true
+
+  configs:
+    cm:
+      # Track resources by annotation instead of by the default
+      # app.kubernetes.io/instance label. The charts here set that label
+      # themselves, so label tracking would have Argo CD claim resources by
+      # coincidence of naming.
+      application.resourceTrackingMethod: annotation
+      # How often Argo CD re-polls git (default 3m). 1m keeps the
+      # commit -> deployed loop short enough to watch.
+      timeout.reconciliation: 60s
+
+    params:
+      # Terminates TLS at the browser side of `kubectl port-forward` instead of
+      # inside the pod. Without this the server redirects to HTTPS and a
+      # port-forwarded plain HTTP session ends in a redirect loop.
+      server.insecure: true
+
+      # Diff with a server-side dry-run apply. Without this, fields the API
+      # server fills in by itself (deletionPolicy on an ExternalSecret,
+      # volumeMode in a StatefulSet's volumeClaimTemplates) look like drift and
+      # the vault, postgres-db and student-api apps never leave OutOfSync.
+      controller.diff.server.side: true
+
+  # Single sign-on and the notifications controller are off: neither is used by
+  # this milestone, and each one is another pod competing for the 2 CPU / 3Gi
+  # budget of the dependent services node.
+  dex:
+    enabled: false
+  notifications:
+    enabled: false
+
+  # Chart 10.2.2 has no toggle to disable the ApplicationSet controller, and
+  # nothing here creates an ApplicationSet — hence the small footprint.
+  applicationSet:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  controller:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  server:
+    replicas: 1
+    service:
+      # ClusterIP plus `make argocd-ui` (a port-forward). A NodePort is not
+      # reachable from the host on the Minikube docker driver on macOS — the
+      # same reason `make helm-verify` tunnels to the API instead of curling
+      # its NodePort. Switch to NodePort on Linux if you prefer.
+      type: ClusterIP
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+
+  repoServer:
+    replicas: 1
+    # The repo-server runs `helm template` on the charts in this repository, so
+    # it needs headroom for the largest one (external-secrets and its CRDs).
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  redis:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
