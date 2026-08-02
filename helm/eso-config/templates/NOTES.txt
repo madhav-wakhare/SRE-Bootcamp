@@ -1,13 +1,11 @@
-ClusterSecretStore "{{ .Values.clusterSecretStore.name }}" was created by release "{{ .Release.Name }}".
+ClusterSecretStore "{{ .Values.name }}" was created by release "{{ .Release.Name }}".
 
-It reads from Vault at {{ .Values.clusterSecretStore.vault.server }}
-(KV {{ .Values.clusterSecretStore.vault.version }} mounted at "{{ .Values.clusterSecretStore.vault.path }}")
-authenticating as role "{{ .Values.clusterSecretStore.vault.auth.kubernetes.role }}"
-with ServiceAccount {{ .Values.clusterSecretStore.vault.auth.kubernetes.serviceAccountRef.namespace }}/{{ .Values.clusterSecretStore.vault.auth.kubernetes.serviceAccountRef.name }}.
+It reads from Vault at {{ .Values.vault.server }}, logging in as role
+"{{ .Values.vault.role }}" with ServiceAccount {{ .Values.vault.serviceAccount.namespace }}/{{ .Values.vault.serviceAccount.name }}.
 
-Confirm the store can reach Vault — READY must be True:
+Confirm it can reach Vault — READY must be True:
 
-    kubectl get clustersecretstore {{ .Values.clusterSecretStore.name }}
+    kubectl get clustersecretstore {{ .Values.name }}
 
-If it is not ready, the usual causes are a sealed Vault, or the Kubernetes auth
-role not being configured yet (`make vault-unseal`, `make vault-configure`).
+If it is not ready, Vault is usually still sealed, or the Kubernetes auth role
+has not been created yet: `make vault-unseal`, `make vault-configure`.

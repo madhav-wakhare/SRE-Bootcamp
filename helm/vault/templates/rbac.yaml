@@ -1,15 +1,14 @@
-{{- if .Values.rbac.create }}
-{{/*
-ClusterRole and ClusterRoleBinding are cluster scoped, so their names include
-the release namespace as well as the release name to stay globally unique.
-*/}}
-{{- $name := printf "%s-%s-tokenreview" (include "vault.fullname" .) .Release.Namespace }}
+# Vault validates the ServiceAccount tokens its clients (ESO) present by calling
+# the TokenReview API, which needs these permissions. ClusterRole and
+# ClusterRoleBinding are cluster scoped, so the name includes the namespace to
+# stay unique across the cluster.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ $name }}
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-tokenreview
   labels:
-    {{- include "vault.labels" . | nindent 4 }}
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
 rules:
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
@@ -21,15 +20,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ $name }}
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-tokenreview
   labels:
-    {{- include "vault.labels" . | nindent 4 }}
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ $name }}
+  name: {{ .Release.Name }}-{{ .Release.Namespace }}-tokenreview
 subjects:
   - kind: ServiceAccount
-    name: {{ include "vault.serviceAccountName" . }}
+    name: {{ .Release.Name }}
     namespace: {{ .Release.Namespace }}
-{{- end }}

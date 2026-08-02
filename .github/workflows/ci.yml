@@ -6,6 +6,8 @@ on:
       - develop
       - ci/cd
       - code-improvements
+      - k8s
+      - main
     paths:
       - 'src/**'
       - 'pyproject.toml'
@@ -26,10 +28,19 @@ on:
       - 'Makefile'
   workflow_dispatch:
 
+# Two pushes in quick succession would otherwise race to commit the image tag
+# back to the same branch, and the loser would fail on a non-fast-forward push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   ci:
     runs-on: [self-hosted, macOS, ARM64]
 
+    outputs:
+      # Consumed by the update-image-tag job below.
+      image_tag: ${{ steps.build.outputs.image_tag }}
 
     steps:
       - name: Checkout Code
@@ -57,19 +68,75 @@ jobs:
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Build and Push Docker Image
+        id: build
         run: |
           # Get the 7-character commit hash for semantic versioning tag
           COMMIT_HASH=$(git rev-parse --short=7 HEAD)
           DOCKER_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/sre-student-api"
-          
+
           echo "Building Docker image..."
           # Set the IMAGE_NAME to dockerhub destination and build the image
           IMAGE_NAME=$DOCKER_IMAGE IMAGE_VERSION=$COMMIT_HASH make docker-build
-          
+
           echo "Tagging image for Docker Hub..."
           docker tag sre-student-api:$COMMIT_HASH $DOCKER_IMAGE:$COMMIT_HASH
-          
+
           echo "Pushing image $DOCKER_IMAGE:$COMMIT_HASH to Docker Hub..."
           docker push $DOCKER_IMAGE:$COMMIT_HASH
 
+          # Hand the tag over to the GitOps job below
+          echo "image_tag=$COMMIT_HASH" >> "$GITHUB_OUTPUT"
 
+  # ---------------------------------------------------------------------------
+  # CD hand-off. This job deploys nothing itself: it records the image that was
+  # just published in the Helm values file and commits it. Argo CD watches that
+  # file in git and rolls the Deployment out on its own within ~1 minute.
+  # ---------------------------------------------------------------------------
+  update-image-tag:
+    name: Update Helm image tag for Argo CD
+    needs: ci
+    # Only for real pushes to a branch: a pull_request build must not rewrite
+    # the base branch, and a PR merge ref is not something Argo CD tracks.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, macOS, ARM64]
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout the branch that was pushed
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          # Full history, so the rebase in the next step has something to rebase.
+          fetch-depth: 0
+          # A PAT is only needed if branch protection rejects GITHUB_TOKEN
+          # pushes; otherwise the default token plus `contents: write` above is
+          # enough. Note that pushes made with GITHUB_TOKEN never trigger
+          # another workflow run, which is what keeps this from looping.
+          token: ${{ secrets.GITOPS_TOKEN || github.token }}
+
+      - name: Pull the latest Helm charts
+        run: |
+          git pull --rebase origin "${{ github.ref_name }}"
+
+      # One sed, defined in the Makefile so the same edit can be made locally.
+      # It fails the job if the tag key ever disappears from values.yaml, rather
+      # than quietly matching nothing.
+      - name: Update image tag in helm/student-api/values.yaml
+        run: make helm-set-image-tag TAG=${{ needs.ci.outputs.image_tag }}
+
+      - name: Commit and push the new tag
+        run: |
+          if git diff --quiet -- helm/student-api/values.yaml; then
+            echo "Already points at ${{ needs.ci.outputs.image_tag }} — nothing to deploy."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add helm/student-api/values.yaml
+          # [skip ci] is belt and braces: helm/** is not in this workflow's path
+          # filters, so a values-only commit cannot retrigger CI anyway.
+          git commit -m "chore(deploy): student-api image tag -> ${{ needs.ci.outputs.image_tag }} [skip ci]"
+          git push origin "HEAD:${{ github.ref_name }}"
+          echo "Pushed. Argo CD applies it on its next reconcile (~1m)."

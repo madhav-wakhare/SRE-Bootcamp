@@ -1,14 +1,13 @@
-{{/*
-Two services, following the standard StatefulSet pattern:
-  * <fullname>          — ClusterIP, the address clients (ESO) talk to.
-  * <fullname>-headless — governs the StatefulSet and gives each pod stable DNS.
-*/}}
+# Two Services, the standard StatefulSet pattern:
+#   <release>           ClusterIP, the address clients such as ESO talk to
+#   <release>-headless  governs the StatefulSet and gives the pod stable DNS
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "vault.fullname" . }}
+  name: {{ .Release.Name }}
   labels:
-    {{- include "vault.labels" . | nindent 4 }}
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -17,17 +16,19 @@ spec:
       targetPort: api
       protocol: TCP
   selector:
-    {{- include "vault.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "vault.headlessServiceName" . }}
+  name: {{ .Release.Name }}-headless
   labels:
-    {{- include "vault.labels" . | nindent 4 }}
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   clusterIP: None
-  # Resolve pods before they are ready so Raft peers can find each other.
+  # Resolve the pod before it is ready, so Raft peers can find each other.
   publishNotReadyAddresses: true
   ports:
     - name: http
@@ -39,4 +40,5 @@ spec:
       targetPort: cluster
       protocol: TCP
   selector:
-    {{- include "vault.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}

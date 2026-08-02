@@ -278,6 +278,7 @@ helm-legacy-cleanup:
 helm-deps:
 	@echo "Building chart dependencies..."
 	helm dependency build $(HELM_DIR)/external-secrets
+	helm dependency build $(HELM_DIR)/argocd
 
 helm-lint:
 	@echo "Linting all Helm charts..."
@@ -286,6 +287,8 @@ helm-lint:
 	helm lint $(HELM_DIR)/eso-config
 	helm lint $(HELM_DIR)/postgres-db
 	helm lint $(HELM_DIR)/student-api
+	helm lint $(HELM_DIR)/argocd
+	helm lint $(HELM_DIR)/argocd-apps
 
 # Renders every chart and validates it against the live cluster's API schema
 # without applying anything.
@@ -303,6 +306,8 @@ helm-package:
 	helm package $(HELM_DIR)/eso-config --destination $(CHART_DIST)/
 	helm package $(HELM_DIR)/postgres-db --destination $(CHART_DIST)/
 	helm package $(HELM_DIR)/student-api --destination $(CHART_DIST)/
+	helm package $(HELM_DIR)/argocd --destination $(CHART_DIST)/
+	helm package $(HELM_DIR)/argocd-apps --destination $(CHART_DIST)/
 
 # -----------------------------------------------------------------------------
 # Install, one component per target, in dependency order
@@ -478,3 +483,126 @@ helm-uninstall-all:
 	@echo "PVCs are kept on purpose. Delete them explicitly to discard the data:"
 	@echo "  kubectl delete pvc -n $(APP_NS) --all"
 	@echo "  kubectl delete pvc -n $(VAULT_NS) --all"
+
+# =============================================================================
+# 6. GitOps with Argo CD
+# =============================================================================
+# After bootstrapping, `helm upgrade` is no longer how this stack is deployed:
+# Argo CD watches the charts under helm/ on ARGOCD_REVISION and applies them
+# itself. The section 5 targets above stay useful for linting, templating, and
+# for the one-time bootstrap of a cluster that has no Argo CD yet.
+.PHONY: argocd-install argocd-apps-install argocd-bootstrap argocd-status \
+        argocd-password argocd-ui argocd-refresh argocd-verify \
+        argocd-uninstall helm-set-image-tag
+
+ARGOCD_NS            ?= argocd
+ARGOCD_RELEASE       ?= argocd
+ARGOCD_APPS_RELEASE  ?= argocd-apps
+# Branch (or tag/commit) Argo CD tracks. Override to deploy from a feature
+# branch, e.g. `make argocd-bootstrap ARGOCD_REVISION=k8s`.
+ARGOCD_REVISION      ?= main
+# Local port for `make argocd-ui`. The NodePort of a Minikube docker-driver node
+# is not reachable from the host on macOS, so the UI is port-forwarded too.
+ARGOCD_UI_PORT       ?= 8090
+# Extra flags appended to the argocd-apps install, e.g.
+# `make argocd-apps-install ARGOCD_APPS_EXTRA='--set rootApp=false'` for the very
+# first install, before helm/argocd-apps exists on the tracked branch.
+ARGOCD_APPS_EXTRA    ?=
+
+# 1. Argo CD itself. This is the only component that is not GitOps-managed --
+#    something has to deploy the deployer.
+argocd-install:
+	@echo "Installing Argo CD in namespace $(ARGOCD_NS) (pinned to the dependent_services node)..."
+	helm upgrade --install $(ARGOCD_RELEASE) $(HELM_DIR)/argocd \
+		--namespace $(ARGOCD_NS) --create-namespace \
+		--wait --timeout 10m
+
+# 2. The declarative Argo CD configuration: AppProject, repository Secret, one
+#    Application per chart, and the root app that keeps them synced from git.
+argocd-apps-install:
+	@echo "Applying Argo CD configuration (revision: $(ARGOCD_REVISION))..."
+	helm upgrade --install $(ARGOCD_APPS_RELEASE) $(HELM_DIR)/argocd-apps \
+		--namespace $(ARGOCD_NS) \
+		--set targetRevision=$(ARGOCD_REVISION) \
+		$(ARGOCD_APPS_EXTRA) \
+		--wait --timeout 2m
+
+# One command to hand the cluster over to GitOps.
+argocd-bootstrap: argocd-install argocd-apps-install
+	@echo ""
+	@echo "==========================================================="
+	@echo "Argo CD is bootstrapped and syncing from $(ARGOCD_REVISION)."
+	@echo "  make argocd-status    # watch the Applications converge"
+	@echo "  make argocd-ui        # open the UI"
+	@echo "Vault still needs its one-time bootstrap: make vault-setup"
+	@echo "==========================================================="
+
+argocd-status:
+	@echo "--- Argo CD pods (all must be on $(NODE_DEPENDENT_SVCS)) ---"
+	@kubectl get pods -n $(ARGOCD_NS) -o wide
+	@echo ""
+	@echo "--- Applications ---"
+	@kubectl get applications -n $(ARGOCD_NS)
+
+# Argo CD generates the initial admin password into a Secret on first install.
+argocd-password:
+	@kubectl -n $(ARGOCD_NS) get secret argocd-initial-admin-secret \
+		-o jsonpath='{.data.password}' | base64 -d; echo
+
+argocd-ui:
+	@echo "Argo CD UI: http://localhost:$(ARGOCD_UI_PORT)  (user: admin, password: make argocd-password)"
+	kubectl port-forward -n $(ARGOCD_NS) svc/argocd-server $(ARGOCD_UI_PORT):80
+
+# Forces an immediate re-poll of git instead of waiting for the reconciliation
+# interval. Useful right after a push when demoing the pipeline.
+argocd-refresh:
+	@for app in $$(kubectl get applications -n $(ARGOCD_NS) -o name); do \
+		kubectl patch $$app -n $(ARGOCD_NS) --type merge \
+			-p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}' >/dev/null; \
+		echo "refresh requested: $$app"; \
+	done
+
+# The GitOps equivalent of `make helm-verify`: what git says, what the cluster
+# runs, and whether the two agree.
+argocd-verify:
+	@echo "--- Applications (SYNC and HEALTH must both be Synced / Healthy) ---"
+	@kubectl get applications -n $(ARGOCD_NS) \
+		-o custom-columns='NAME:.metadata.name,REVISION:.spec.source.targetRevision,PATH:.spec.source.path,SYNC:.status.sync.status,HEALTH:.status.health.status,AT:.status.operationState.finishedAt'
+	@echo ""
+	@echo "--- Image tag: git vs cluster ---"
+	@echo "  values.yaml: $$(awk '/^image:/{f=1} f&&/^[^ #]/&&!/^image:/{f=0} f&&$$1=="tag:"{gsub(/"/,"",$$2); print $$2; exit}' $(HELM_DIR)/student-api/values.yaml)"
+	@echo "  running    : $$(kubectl get deploy $(API_RELEASE) -n $(APP_NS) -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/.*://')"
+	@echo ""
+	@$(MAKE) --no-print-directory helm-verify
+
+# Removes Argo CD without taking the deployed stack down with it: the
+# Applications carry a resources-finalizer, so deleting them while the finalizer
+# is in place would cascade into every workload they manage.
+argocd-uninstall:
+	@echo "Dropping Application finalizers so the workloads are orphaned, not deleted..."
+	@for app in $$(kubectl get applications -n $(ARGOCD_NS) -o name 2>/dev/null); do \
+		kubectl patch $$app -n $(ARGOCD_NS) --type merge \
+			-p '{"metadata":{"finalizers":null}}' >/dev/null || true; \
+	done
+	helm uninstall $(ARGOCD_APPS_RELEASE) --namespace $(ARGOCD_NS) || true
+	helm uninstall $(ARGOCD_RELEASE) --namespace $(ARGOCD_NS) || true
+	@echo "Done. The stack keeps running, but nothing reconciles it any more."
+
+# -----------------------------------------------------------------------------
+# The CI-side half of the loop
+# -----------------------------------------------------------------------------
+# What the "update-image-tag" job in .github/workflows/ci.yml runs -- the job
+# calls this target, so the edit is defined in exactly one place and can be made
+# and reviewed locally too:
+#   make helm-set-image-tag TAG=$(git rev-parse --short=7 HEAD)
+#
+# The `^  tag: ` anchor matters: it pins the replacement to the two-space
+# indented key inside the top-level `image:` block, so nothing else in the file
+# can be hit by accident. sed -i.bak (rather than a bare -i) is the spelling
+# that works on both BSD sed (the macOS runner) and GNU sed.
+helm-set-image-tag: VALUES = $(HELM_DIR)/student-api/values.yaml
+helm-set-image-tag:
+	@test -n "$(TAG)" || { echo "usage: make helm-set-image-tag TAG=<image-tag>"; exit 1; }
+	@grep -qE '^  tag: ' $(VALUES) || { echo "no 'tag:' key found in $(VALUES)"; exit 1; }
+	@sed -i.bak -E 's|^(  tag: ).*|\1"$(TAG)"|' $(VALUES) && rm -f $(VALUES).bak
+	@echo "$(VALUES): image.tag -> $(TAG)"

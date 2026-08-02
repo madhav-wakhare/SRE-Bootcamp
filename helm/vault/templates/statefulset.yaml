@@ -1,48 +1,35 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "vault.fullname" . }}
+  name: {{ .Release.Name }}
   labels:
-    {{- include "vault.labels" . | nindent 4 }}
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  serviceName: {{ include "vault.headlessServiceName" . }}
+  serviceName: {{ .Release.Name }}-headless
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "vault.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: vault
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       annotations:
-        # Roll the pod whenever vault.hcl changes.
+        # Hash of the ConfigMap, so a change to vault.hcl rolls the pod.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        {{- with .Values.podAnnotations }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
       labels:
-        {{- include "vault.labels" . | nindent 8 }}
+        app.kubernetes.io/name: vault
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      serviceAccountName: {{ include "vault.serviceAccountName" . }}
-      {{- with .Values.podSecurityContext }}
+      serviceAccountName: {{ .Release.Name }}
       securityContext:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.nodeSelector }}
+        fsGroup: {{ .Values.fsGroup }}
       nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- if and .Values.persistence.enabled .Values.initContainer.enabled }}
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
       initContainers:
         # Freshly provisioned volumes are owned by root; Vault runs as 100:1000.
         - name: fix-permissions
-          image: {{ .Values.initContainer.image }}
+          image: {{ .Values.initContainerImage }}
           securityContext:
             runAsUser: 0
           command:
@@ -52,10 +39,9 @@ spec:
           volumeMounts:
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
-      {{- end }}
       containers:
         - name: vault
-          image: {{ include "vault.image" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             capabilities:
@@ -79,14 +65,12 @@ spec:
               value: "http://$(POD_IP):{{ .Values.ports.api }}"
             # $(HOSTNAME) is the pod name, so this is the pod's stable FQDN.
             - name: VAULT_CLUSTER_ADDR
-              value: "https://$(HOSTNAME).{{ include "vault.headlessServiceName" . }}:{{ .Values.ports.cluster }}"
-          {{- if .Values.readinessProbe.enabled }}
+              value: "https://$(HOSTNAME).{{ .Release.Name }}-headless:{{ .Values.ports.cluster }}"
           readinessProbe:
             tcpSocket:
               port: api
             initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
-          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /vault/config
@@ -97,12 +81,8 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "vault.fullname" . }}-config
-        {{- if not .Values.persistence.enabled }}
-        - name: data
-          emptyDir: {}
-        {{- end }}
-  {{- if .Values.persistence.enabled }}
+            name: {{ .Release.Name }}-config
+  # Kubernetes creates one PersistentVolumeClaim named "data" for the pod.
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -112,4 +92,3 @@ spec:
         resources:
           requests:
             storage: {{ .Values.persistence.size }}
-  {{- end }}

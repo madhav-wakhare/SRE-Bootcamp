@@ -1,73 +1,60 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "student-api.fullname" . }}
+  name: {{ .Release.Name }}
   labels:
-    {{- include "student-api.labels" . | nindent 4 }}
+    app.kubernetes.io/name: student-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "student-api.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: student-api
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       annotations:
+        # Hash of the ConfigMap. When the config changes the hash changes, which
+        # changes the pod template, which makes Kubernetes roll the pods.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        {{- with .Values.podAnnotations }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
       labels:
-        {{- include "student-api.labels" . | nindent 8 }}
+        app.kubernetes.io/name: student-api
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      {{- if .Values.imagePullSecret.enabled }}
-      imagePullSecrets:
-        - name: {{ include "student-api.registrySecretName" . }}
-      {{- end }}
-      {{- with .Values.nodeSelector }}
       nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- if .Values.migrations.enabled }}
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
       initContainers:
-        # Applies Alembic migrations to completion before the app starts, so the
-        # app is never live against a stale schema. It also blocks until Postgres
-        # accepts connections, which doubles as a readiness gate on the database.
+        # Applies Alembic migrations before the app starts, so the app is never
+        # live against a stale schema. It also blocks until Postgres accepts
+        # connections, which doubles as a readiness gate on the database.
         - name: run-migrations
-          image: {{ include "student-api.image" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
-            {{- toYaml .Values.migrations.command | nindent 12 }}
+            {{- toYaml .Values.migrationCommand | nindent 12 }}
           env:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "student-api.dbSecretName" . }}
-                  key: {{ include "student-api.dbSecretKey" . }}
+                  name: {{ .Release.Name }}-db-url
+                  key: DATABASE_URL
           resources:
-            {{- toYaml .Values.migrations.resources | nindent 12 }}
-      {{- end }}
+            {{- toYaml .Values.migrationResources | nindent 12 }}
       containers:
-        - name: {{ .Chart.Name }}
-          image: {{ include "student-api.image" . }}
+        - name: student-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
               containerPort: {{ .Values.containerPort }}
               protocol: TCP
           env:
+            # Written into this Secret by External Secrets Operator.
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "student-api.dbSecretName" . }}
-                  key: {{ include "student-api.dbSecretKey" . }}
+                  name: {{ .Release.Name }}-db-url
+                  key: DATABASE_URL
             # Pod identity, surfaced in the JSON logs to make them traceable.
             - name: POD_NAME
               valueFrom:
@@ -85,10 +72,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+          # Everything in the ConfigMap, as environment variables.
           envFrom:
             - configMapRef:
-                name: {{ include "student-api.fullname" . }}-config
-          {{- if .Values.probes.enabled }}
+                name: {{ .Release.Name }}-config
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
@@ -101,6 +88,5 @@ spec:
               port: http
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
-          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

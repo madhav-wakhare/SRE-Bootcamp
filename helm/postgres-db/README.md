@@ -2,17 +2,20 @@
 
 PostgreSQL for the Student API, run as a single-replica StatefulSet. The chart
 never stores `POSTGRES_PASSWORD` itself — it is synced in from Vault by an
-`ExternalSecret`, so the chart and its `values.yaml` hold no secret material.
+`ExternalSecret`, so neither the chart nor its `values.yaml` holds any secret.
+
+Install it with the release name `postgres-db`; every resource is named after
+the release, and the DNS name that name produces is baked into the `db_url`
+stored in Vault.
 
 ## What this chart creates
 
-| Resource | Name | Purpose |
+| Template | Resource | Purpose |
 | --- | --- | --- |
-| ConfigMap | `postgres-db-config` | Non-sensitive settings: `POSTGRES_USER`, `POSTGRES_DB` |
-| ExternalSecret | `postgres-db` | Pulls `db_password` from Vault, writes it into a Secret as `POSTGRES_PASSWORD` |
-| StatefulSet | `postgres-db` | Runs `postgres:17-alpine`, one replica, with a `pg_isready` readiness/liveness probe |
-| Service | `postgres-db` | Headless — gives the pod a stable DNS name, no load balancing needed for a single writer (see the `vault` chart's README for why *that* chart needs a second, non-headless Service and this one doesn't) |
-| PersistentVolumeClaim (via `volumeClaimTemplates`) | `data-postgres-db-0` | 1Gi by default, retained on `helm uninstall` |
+| `configmap.yaml` | ConfigMap `postgres-db-config` | Non-secret settings: `POSTGRES_USER`, `POSTGRES_DB` |
+| `externalsecret.yaml` | ExternalSecret `postgres-db` | Tells ESO to copy `db_password` from Vault into Secret `postgres-db-secret` as `POSTGRES_PASSWORD` |
+| `statefulset.yaml` | StatefulSet `postgres-db` | `postgres:17-alpine`, one replica, `pg_isready` probes, PVC `data-postgres-db-0` (1Gi, kept on uninstall) |
+| `service.yaml` | Service `postgres-db` | Headless — one stable DNS name for the single pod |
 
 ## How it connects to the rest of the stack
 
@@ -29,19 +32,15 @@ never stores `POSTGRES_PASSWORD` itself — it is synced in from Vault by an
                      read by student-api's DATABASE_URL (from Vault's db_url)
 ```
 
-- **`externalSecrets.secretStore`** (`vault-backend`) must match the
+- **`externalSecret.secretStore`** (`vault-backend`) must match the
   `ClusterSecretStore` name created by the `eso-config` chart.
-- **`externalSecrets.remoteKey` / `remoteProperty`** (`one2n/dev/app-config` /
+- **`externalSecret.remoteKey` / `remoteProperty`** (`one2n/dev/app-config` /
   `db_password`) must match what `make vault-seed` wrote into Vault.
-- This chart does **not** know about `student-api`. The link between them is
-  entirely inside Vault: the `db_url` secret seeded by `make vault-seed`
-  hardcodes this chart's Service DNS name —
-  `postgres-db.<namespace>.svc.cluster.local:5432`. **If you rename this
-  release or its namespace, the API's `DATABASE_URL` breaks until you rerun
+- This chart does **not** know about `student-api`. The link is entirely inside
+  Vault: the seeded `db_url` hardcodes this chart's Service DNS name,
+  `postgres-db.<namespace>.svc.cluster.local:5432`. **Rename this release or its
+  namespace and the API's `DATABASE_URL` breaks until you re-run
   `make vault-seed`.**
-- If ESO is not available (`externalSecrets.enabled: false`), point
-  `existingSecret.name`/`existingSecret.key` at a Secret you manage yourself —
-  the StatefulSet reads whichever one `postgres-db.secretName` resolves to.
 
 ## Notable values
 
@@ -50,16 +49,16 @@ never stores `POSTGRES_PASSWORD` itself — it is synced in from Vault by an
 | `config.POSTGRES_USER` / `config.POSTGRES_DB` | `postgres` / `students_db` | Must match the values baked into `db_url` in Vault |
 | `nodeSelector` | `{type: database}` | Matches the bootcamp's multi-node minikube labels |
 | `persistence.size` | `1Gi` | Increase before the volume fills, not after — resizing needs a StorageClass that supports expansion |
-| `externalSecrets.secretStore` | `vault-backend` | Must match `eso-config`'s `clusterSecretStore.name` |
+| `externalSecret.secretStore` | `vault-backend` | Must match `eso-config`'s `name` |
 
 ## Deploying
 
-Requires the `eso-config` `ClusterSecretStore` to be `READY`, which in turn
-needs an unsealed, configured, and seeded Vault:
+Requires the `eso-config` `ClusterSecretStore` to be `READY`, which in turn needs
+an unsealed, configured, and seeded Vault:
 
 ```bash
 helm upgrade --install postgres-db ./helm/postgres-db -n student-api --create-namespace --wait
 ```
 
-If the pod sits in `CreateContainerConfigError`, the ESO Secret doesn't exist
+If the pod sits in `CreateContainerConfigError`, the ESO Secret does not exist
 yet — check `kubectl get externalsecret postgres-db -n student-api`.

@@ -1,22 +1,15 @@
-PostgreSQL {{ .Chart.AppVersion }} was installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+PostgreSQL was installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
 
 In-cluster address:
 
-    {{ include "postgres-db.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+    {{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
 
 Database "{{ .Values.config.POSTGRES_DB }}", user "{{ .Values.config.POSTGRES_USER }}".
+The password comes from Vault via the Secret "{{ .Release.Name }}-secret" — until that
+Secret exists the pod stays in CreateContainerConfigError. Check it with:
 
-{{ if .Values.externalSecrets.enabled -}}
-The password comes from Vault ({{ .Values.externalSecrets.remoteKey }} → {{ .Values.externalSecrets.remoteProperty }})
-via ClusterSecretStore "{{ .Values.externalSecrets.secretStore }}". Verify the sync — STATUS must be SecretSynced:
+    kubectl get externalsecret {{ .Release.Name }} -n {{ .Release.Namespace }}
 
-    kubectl get externalsecret {{ include "postgres-db.fullname" . }} -n {{ .Release.Namespace }}
+Open a psql shell:
 
-The pod stays in CreateContainerConfigError until that Secret exists.
-{{- else -}}
-The password is read from the existing Secret "{{ .Values.existingSecret.name }}".
-{{- end }}
-
-Open a psql shell with:
-
-    kubectl exec -it -n {{ .Release.Namespace }} {{ include "postgres-db.fullname" . }}-0 -- psql -U {{ .Values.config.POSTGRES_USER }} -d {{ .Values.config.POSTGRES_DB }}
+    kubectl exec -it -n {{ .Release.Namespace }} {{ .Release.Name }}-0 -- psql -U {{ .Values.config.POSTGRES_USER }} -d {{ .Values.config.POSTGRES_DB }}

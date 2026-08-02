@@ -18,7 +18,7 @@ StatefulSet.
 
 The name is fixed rather than templated from the release name because every
 consuming chart (`postgres-db`, `student-api`) hardcodes
-`externalSecrets.secretStore: vault-backend` in its own `values.yaml`. If you
+`externalSecret.secretStore: vault-backend` in its own `values.yaml`. If you
 rename it here, update it in both of those charts too — there's no other link
 between them.
 
@@ -34,14 +34,14 @@ external-secrets (operator)  ──┐
                     vault.vault.svc.cluster.local:8200  (vault chart)
 ```
 
-- **`clusterSecretStore.vault.server`** must resolve to the `vault` chart's
-  Service — `http://<vault fullname>.<vault namespace>.svc.cluster.local:8200`.
-- **`clusterSecretStore.vault.auth.kubernetes.role`** (`eso-role`) and the KV
+- **`vault.server`** must resolve to the `vault` chart's
+  Service — `http://<vault release>.<vault namespace>.svc.cluster.local:8200`.
+- **`vault.role`** (`eso-role`) and the KV
   **`path`** (`secret`) must match what `make vault-configure` wrote into
   Vault. This chart only *declares* the auth method's mount path and role name
   — it does not create them in Vault; that's the Makefile's job because it
   needs a live, unsealed Vault to run `vault write auth/...` against.
-- **`serviceAccountRef`** (`external-secrets` / `eso-ns`) must match the
+- **`vault.serviceAccount`** (`external-secrets` / `eso-ns`) must match the
   ServiceAccount the `external-secrets` chart creates for the operator. Vault
   validates this account's token via `TokenReview` (see the `vault` chart's
   RBAC) before honoring the login.
@@ -50,10 +50,10 @@ external-secrets (operator)  ──┐
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `clusterSecretStore.name` | `vault-backend` | Referenced by name in `postgres-db`/`student-api` — see above |
-| `clusterSecretStore.vault.server` | `http://vault.vault.svc.cluster.local:8200` | Points at the `vault` chart's Service |
-| `clusterSecretStore.vault.path` | `secret` | KV v2 mount path in Vault |
-| `clusterSecretStore.vault.auth.kubernetes.role` | `eso-role` | Vault role bound in `make vault-configure` |
+| `name` | `vault-backend` | Referenced by name in `postgres-db`/`student-api` — see above |
+| `vault.server` | `http://vault.vault.svc.cluster.local:8200` | Points at the `vault` chart's Service |
+| `vault.path` | `secret` | KV v2 mount path in Vault |
+| `vault.role` | `eso-role` | Vault role bound in `make vault-configure` |
 
 ## Verifying
 

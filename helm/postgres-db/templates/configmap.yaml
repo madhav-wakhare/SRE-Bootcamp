@@ -1,10 +1,12 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "postgres-db.fullname" . }}-config
+  name: {{ .Release.Name }}-config
   labels:
-    {{- include "postgres-db.labels" . | nindent 4 }}
+    app.kubernetes.io/name: postgres-db
+    app.kubernetes.io/instance: {{ .Release.Name }}
 data:
+  # Every key under `config:` in values.yaml becomes an entry here.
   {{- range $key, $value := .Values.config }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}
