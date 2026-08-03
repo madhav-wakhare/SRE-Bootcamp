@@ -1,0 +1,57 @@
+# Values for the postgres-db chart.
+#
+# Install with:
+#   helm upgrade --install postgres-db ./helm/postgres-db -n student-api --create-namespace
+#
+# Use the release name "postgres-db": the service then resolves as
+#   postgres-db.student-api.svc.cluster.local:5432
+# and that hostname is baked into the db_url stored in Vault. Renaming the
+# release means re-running `make vault-seed`.
+
+image:
+  repository: postgres
+  tag: "17-alpine"
+  pullPolicy: IfNotPresent
+
+# Run the database on the node labelled type=database.
+nodeSelector:
+  type: database
+
+service:
+  port: 5432
+
+# Non-secret settings. These become a ConfigMap the StatefulSet reads.
+config:
+  POSTGRES_USER: postgres
+  POSTGRES_DB: students_db
+
+# Disk for the database files, requested through the StatefulSet's
+# volumeClaimTemplates. The PVC survives `helm uninstall`.
+persistence:
+  storageClass: standard
+  size: 1Gi
+  accessMode: ReadWriteOnce
+  mountPath: /var/lib/postgresql/data
+
+# POSTGRES_PASSWORD is never stored in this chart. External Secrets Operator
+# reads it from Vault and writes it into the Secret "postgres-db-secret".
+externalSecret:
+  # The ClusterSecretStore created by the eso-config chart.
+  secretStore: vault-backend
+  # KV path in Vault holding the application secrets.
+  remoteKey: one2n/dev/app-config
+  # Field inside that path holding the Postgres password.
+  remoteProperty: db_password
+  refreshInterval: 1m
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+probes:
+  initialDelaySeconds: 10
+  periodSeconds: 10

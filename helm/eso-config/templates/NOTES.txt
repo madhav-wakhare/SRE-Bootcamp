@@ -1,0 +1,11 @@
+ClusterSecretStore "{{ .Values.name }}" was created by release "{{ .Release.Name }}".
+
+It reads from Vault at {{ .Values.vault.server }}, logging in as role
+"{{ .Values.vault.role }}" with ServiceAccount {{ .Values.vault.serviceAccount.namespace }}/{{ .Values.vault.serviceAccount.name }}.
+
+Confirm it can reach Vault — READY must be True:
+
+    kubectl get clustersecretstore {{ .Values.name }}
+
+If it is not ready, Vault is usually still sealed, or the Kubernetes auth role
+has not been created yet: `make vault-unseal`, `make vault-configure`.

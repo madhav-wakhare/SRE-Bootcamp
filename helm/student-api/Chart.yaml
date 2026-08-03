@@ -1,0 +1,13 @@
+apiVersion: v2
+name: student-api
+description: Student CRUD REST API — Flask app with Alembic migrations run as an initContainer and its DATABASE_URL sourced from Vault via External Secrets Operator
+type: application
+version: 1.0.0
+# Image tag deployed by default — bump together with values.image.tag on release.
+appVersion: "bd10dca"
+maintainers:
+  - name: madhav-wakhare
+keywords:
+  - student-api
+  - rest-api
+  - flask

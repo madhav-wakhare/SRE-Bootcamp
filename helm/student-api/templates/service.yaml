@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: student-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      nodePort: {{ .Values.service.nodePort }}
+  # Sends traffic to the pods carrying these labels.
+  selector:
+    app.kubernetes.io/name: student-api
+    app.kubernetes.io/instance: {{ .Release.Name }}

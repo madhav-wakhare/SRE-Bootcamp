@@ -1,0 +1,91 @@
+apiVersion: v1 
+kind: Namespace
+metadata:
+  name: student-api
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-db-config
+  namespace: student-api
+data:
+  POSTGRES_USER: "postgres"
+  POSTGRES_DB: "students_db"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-db
+  namespace: student-api
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      nodeSelector:
+        type: database
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-db-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-db-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-db-config
+                  key: POSTGRES_DB
+          volumeMounts:
+              # Mount the PersistentVolumeClaim to the container
+            - name: pgdata
+              # Mount the volume to the PostgreSQL data directory in the container
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+  # The volumeClaimTemplates section defines a PersistentVolumeClaim for the StatefulSet. This allows each replica of the StatefulSet to have its own persistent storage. The storageClassName specifies which StorageClass to use for the PersistentVolumeClaim, and the resources.requests.storage field specifies the amount of storage requested for each replica's PersistentVolumeClaim.
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: "standard"
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db
+  namespace: student-api
+spec:
+  # Headless service for the StatefulSet. This allows each replica of the StatefulSet to be accessed individually using its own DNS name, which is useful for stateful applications like databases.
+  clusterIP: None
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: postgres

@@ -1,0 +1,44 @@
+# Two Services, the standard StatefulSet pattern:
+#   <release>           ClusterIP, the address clients such as ESO talk to
+#   <release>-headless  governs the StatefulSet and gives the pod stable DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: api
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-headless
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  clusterIP: None
+  # Resolve the pod before it is ready, so Raft peers can find each other.
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: {{ .Values.ports.api }}
+      targetPort: api
+      protocol: TCP
+    - name: cluster
+      port: {{ .Values.ports.cluster }}
+      targetPort: cluster
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}

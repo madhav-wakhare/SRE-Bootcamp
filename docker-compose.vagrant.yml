@@ -20,6 +20,21 @@ services:
       retries: 5
       start_period: 2s
 
+  db-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sre-student-api:${IMAGE_VERSION:-1.0.0}
+    container_name: sre-student-db-migrate-vagrant
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/students_db
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - sre-network
+
   api1:
     build:
       context: .
@@ -35,9 +50,17 @@ services:
       - LOG_FILE=/app/logs/app.log
     volumes:
       - /var/log/sre-student-api/api1:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/healthcheck').read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     depends_on:
       db:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - sre-network
 
@@ -56,9 +79,17 @@ services:
       - LOG_FILE=/app/logs/app.log
     volumes:
       - /var/log/sre-student-api/api2:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/healthcheck').read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     depends_on:
       db:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - sre-network
 

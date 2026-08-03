@@ -1,0 +1,139 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault-ns
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  # The service account is used to provide an identity for the Vault pods, allowing them to interact with the Kubernetes API and other resources securely.
+  # It uses JWT Token under the hood to prove the identity to the Kubernetes API.
+  name: vault-sa
+  namespace: vault-ns
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: vault-ns
+data:
+  # This is the configuration file for vault, which is used to configure the vault service.
+  vault.hcl: |-
+    ui = true
+    # Disable mlock to allow Vault to run in environments where mlock is not available (e.g., containers), it is strict for 2.0 and above, so we need to set it to true to avoid errors.
+    disable_mlock = true 
+
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      tls_disable = 1
+    }
+
+    storage "raft" {
+      path = "/vault/data"
+    }
+    # This is the address of the vault service, which is used to access the vault service.
+    api_addr     = "http://vault-svc.vault-ns.svc.cluster.local:8200"
+    cluster_addr = "http://vault-svc.vault-ns.svc.cluster.local:8201"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-svc
+  namespace: vault-ns
+spec:
+  # Headless service is used to provide a stable network identity for the Vault pods.
+  clusterIP: None
+  selector:
+    app: vault
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+    - name: cluster
+      port: 8201
+      targetPort: 8201
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+  namespace: vault-ns
+spec:
+  serviceName: vault-svc
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      # Connected to the vault-sa service account, which provides an identity for the Vault pods
+      serviceAccountName: vault-sa
+      nodeSelector:
+        type: dependent_services
+
+      securityContext:
+        fsGroup: 1000
+
+      initContainers:
+      # Init container is used to fix the permissions of the /vault/data directory, which is used to store the vault data. It is run as root to fix the permissions of the /vault/data directory.
+      - name: fix-permissions
+        image: busybox
+        securityContext:
+          runAsUser: 0
+        command:
+        - sh
+        - -c
+        - |
+          mkdir -p /vault/data
+          chown -R 100:1000 /vault/data
+        volumeMounts:
+        # Writes in /vault/data directory in vault-data persistent volume to store the vault data
+        - name: vault-data
+          mountPath: /vault/data
+
+      containers:
+      - name: vault
+        image: hashicorp/vault:2.0
+        securityContext:
+          capabilities:
+            add: ["IPC_LOCK"]
+        # Starts vault server in server mode and loads the configuration from the configmap.
+        command: ["vault"]
+        args: ["server", "-config=/vault/config/vault.hcl"]
+        ports:
+        # Exposes the vault service on port 8200 (API) and 8201 (Cluster) for communication within the cluster.
+        - containerPort: 8200
+        - containerPort: 8201
+        env:
+        - name: VAULT_ADDR
+          value: "http://127.0.0.1:8200"
+        volumeMounts:
+        # Mounts the vault-config configmap as a volume in the container to provide the configuration for the vault server
+        - name: vault-config
+          mountPath: /vault/config
+        # Mounts the vault-data persistent volume as a volume in the container to store the vault data
+        - name: vault-data
+          mountPath: /vault/data
+
+      volumes:
+      # ConfigMap contains the configuration for the vault server, which is mounted as a volume in the container to provide the configuration for the vault server
+      - name: vault-config
+        configMap:
+          name: vault-config
+
+  volumeClaimTemplates:
+  - metadata:
+      name: vault-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
+      storageClassName: standard

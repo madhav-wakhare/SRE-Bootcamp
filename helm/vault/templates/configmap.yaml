@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  # Vault's own config file, mounted at /vault/config/vault.hcl.
+  vault.hcl: |-
+    ui = true
+
+    # Containers cannot lock memory pages, so mlock must be disabled.
+    disable_mlock = true
+
+    listener "tcp" {
+      address     = "0.0.0.0:{{ .Values.ports.api }}"
+      tls_disable = 1
+    }
+
+    storage "raft" {
+      path = {{ .Values.persistence.mountPath | quote }}
+    }
+
+    # api_addr and cluster_addr are set as environment variables in the
+    # StatefulSet instead, because they depend on the pod's own IP and name.

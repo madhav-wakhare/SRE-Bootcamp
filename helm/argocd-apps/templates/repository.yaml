@@ -1,0 +1,16 @@
+# Registers the git repository with Argo CD. Argo CD finds this Secret by its
+# label, not by its name. The repository is public, so it holds no credentials —
+# see this chart's README.md for the private-repository version, where the token
+# comes from Vault through External Secrets Operator.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-repo
+  labels:
+    app.kubernetes.io/name: argocd-apps
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  url: {{ .Values.repoURL | quote }}

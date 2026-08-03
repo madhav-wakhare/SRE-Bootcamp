@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  serviceName: {{ .Release.Name }}-headless
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        # Hash of the ConfigMap, so a change to vault.hcl rolls the pod.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        app.kubernetes.io/name: vault
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}
+      securityContext:
+        fsGroup: {{ .Values.fsGroup }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      initContainers:
+        # Freshly provisioned volumes are owned by root; Vault runs as 100:1000.
+        - name: fix-permissions
+          image: {{ .Values.initContainerImage }}
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - mkdir -p {{ .Values.persistence.mountPath }} && chown -R 100:1000 {{ .Values.persistence.mountPath }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+      containers:
+        - name: vault
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK"]
+          command: ["vault"]
+          args: ["server", "-config=/vault/config/vault.hcl"]
+          ports:
+            - name: api
+              containerPort: {{ .Values.ports.api }}
+            - name: cluster
+              containerPort: {{ .Values.ports.cluster }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # Used by `kubectl exec ... vault <cmd>` so the CLI talks to itself.
+            - name: VAULT_ADDR
+              value: "http://127.0.0.1:{{ .Values.ports.api }}"
+            - name: VAULT_API_ADDR
+              value: "http://$(POD_IP):{{ .Values.ports.api }}"
+            # $(HOSTNAME) is the pod name, so this is the pod's stable FQDN.
+            - name: VAULT_CLUSTER_ADDR
+              value: "https://$(HOSTNAME).{{ .Release.Name }}-headless:{{ .Values.ports.cluster }}"
+          readinessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          volumeMounts:
+            - name: config
+              mountPath: /vault/config
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-config
+  # Kubernetes creates one PersistentVolumeClaim named "data" for the pod.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [{{ .Values.persistence.accessMode | quote }}]
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}

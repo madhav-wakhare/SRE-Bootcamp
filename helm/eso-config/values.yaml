@@ -1,0 +1,28 @@
+# Values for the eso-config chart.
+#
+# Install with:
+#   helm upgrade --install eso-config ./helm/eso-config -n eso-ns
+#
+# Requires the external-secrets release (operator + CRDs) and a Vault that has
+# been unsealed and configured (`make vault-setup`).
+
+# A ClusterSecretStore is cluster scoped, and every ExternalSecret refers to it
+# by this exact name. The postgres-db and student-api charts default to the same
+# value in their `externalSecret.secretStore` key — change it here and you must
+# change it there too.
+name: vault-backend
+
+vault:
+  # Must match: http://<vault release>.<vault namespace>.svc.cluster.local:8200
+  server: http://vault.vault.svc.cluster.local:8200
+  # Mount path of the KV engine inside Vault.
+  path: secret
+  version: v2
+  # Vault role that ESO logs in as, created by `make vault-configure`.
+  role: eso-role
+  # Auth method mount path inside Vault ("vault auth enable kubernetes").
+  authMountPath: kubernetes
+  # ESO's own ServiceAccount — Vault validates this token via TokenReview.
+  serviceAccount:
+    name: external-secrets
+    namespace: eso-ns

@@ -1,0 +1,19 @@
+apiVersion: v2
+name: external-secrets
+description: >-
+  Wrapper around the community External Secrets Operator chart. The upstream
+  chart is vendored into charts/ so the whole stack can be installed from this
+  repository without reaching out to an external Helm repo at deploy time.
+type: application
+version: 1.0.0
+appVersion: "v2.8.0"
+maintainers:
+  - name: madhav-wakhare
+keywords:
+  - external-secrets
+  - eso
+  - secrets-management
+dependencies:
+  - name: external-secrets
+    version: 2.8.0
+    repository: https://charts.external-secrets.io

@@ -1,0 +1,23 @@
+Argo CD is now driving this repository.
+
+Repository : {{ .Values.repoURL }}
+Revision   : {{ .Values.targetRevision }}
+Project    : {{ .Values.project }}
+
+Applications: external-secrets, vault, eso-config, postgres-db, student-api
+{{- if .Values.rootApp }}, plus the sre-bootcamp-root app-of-apps{{ end }}
+
+Watch them converge — SYNC and HEALTH should both settle on Synced / Healthy:
+
+    kubectl get applications -n {{ .Release.Namespace }} -w
+
+Auto-sync is on, so a commit to "{{ .Values.targetRevision }}" is applied within about a
+minute, and a change made with kubectl is undone almost immediately.
+
+Vault is the one thing GitOps cannot finish: Argo CD deploys it, but it comes up
+sealed. Run `make vault-setup` once, and `make vault-unseal` after a restart.
+
+Open the UI:
+
+    make argocd-ui        # http://localhost:8090
+    make argocd-password  # the admin password

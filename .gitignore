@@ -1,9 +1,41 @@
+# Python virtual environments
 .venv/
+venv/
+env/
+
+# Python bytecode & cache
 __pycache__/
 *.py[cod]
-*.db
+*$py.class
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Local database files
+*.db
+*.sqlite
+
+# Environment variables & secret keys
 .env
+env
+*vault-keys.json
+vault.keys
+
+# Log files & directories
+logs/
+*.log
+
+# OS & IDE temporary files
+.DS_Store
+.vscode/
+.idea/
+
+# CI / Vagrant & runner artifacts
 actions-runner/
 .vagrant/
-env
+
+# Packaged Helm charts (build output of `make helm-package`).
+# Vendored subcharts under helm/*/charts/ ARE committed on purpose.
+dist/
+
+.claude/

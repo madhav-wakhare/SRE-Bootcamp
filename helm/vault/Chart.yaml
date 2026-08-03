@@ -1,0 +1,13 @@
+apiVersion: v2
+name: vault
+description: HashiCorp Vault (single node, Raft storage) used as the secret backend for External Secrets Operator
+type: application
+# Chart version — bump on every chart change (SemVer).
+version: 1.0.0
+# Version of the application (Vault) shipped by default with this chart.
+appVersion: "2.0.3"
+maintainers:
+  - name: madhav-wakhare
+keywords:
+  - vault
+  - secrets-management

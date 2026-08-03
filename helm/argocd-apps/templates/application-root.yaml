@@ -1,0 +1,35 @@
+{{- if .Values.rootApp }}
+# The app-of-apps root: an Application whose source is this chart. After the
+# first `helm install`, the Applications above are themselves managed from git —
+# add a new file here, push, and Argo CD creates that Application on its own.
+#
+# Wave -1 so the root reconciles before the Applications it renders.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sre-bootcamp-root
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ .Values.project }}
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.targetRevision | quote }}
+    path: helm/argocd-apps
+    helm:
+      releaseName: {{ .Release.Name }}
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Release.Namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}
