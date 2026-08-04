@@ -1,0 +1,39 @@
+global:
+  # Your control-plane node is SchedulingDisabled and you have three labelled
+  # workers. This pins all Argo CD pods to the dependent_services node
+  # (minikube-m03), alongside Vault and ESO.
+  nodeSelector:
+    type: dependent_services
+
+crds:
+  install: true
+  # Never delete the Application CRD. Doing so deletes every Application object,
+  # and each one carrying a finalizer cascades into the workloads it manages.
+  keep: true
+
+configs:
+  cm:
+    # The decision above. Do not skip this one.
+    application.resourceTrackingMethod: annotation
+    # Poll git every 60s instead of the 3m default, so the loop is watchable.
+    timeout.reconciliation: 60s
+  params:
+    # Terminate TLS at the browser. Without this a port-forwarded plain-HTTP
+    # session hits a redirect loop.
+    server.insecure: true
+    # Compute diffs with a server-side dry-run apply instead of a client-side
+    # three-way merge. This stops API-server-defaulted fields from looking like
+    # drift — it matters a lot for your other charts later.
+    controller.diff.server.side: true
+
+# Not needed at this milestone, and each is a pod competing for the node budget.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+
+server:
+  service:
+    # NodePort isn't reachable from the host on the Minikube docker driver on
+    # macOS. Use a port-forward instead.
+    type: ClusterIP
