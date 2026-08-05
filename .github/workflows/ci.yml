@@ -26,6 +26,8 @@ on:
       - 'uv.lock'
       - 'Dockerfile'
       - 'Makefile'
+      - 'helm/**'
+      - 'README.md'
   workflow_dispatch:
 
 # Two pushes in quick succession would otherwise race to commit the image tag
