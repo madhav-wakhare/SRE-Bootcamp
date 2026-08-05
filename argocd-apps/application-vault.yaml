@@ -1,18 +1,20 @@
+---
 # Wave 1 — Vault. Argo CD deploys it, but Vault always comes up sealed:
 # `make vault-setup` once, then `make vault-unseal` after every pod restart.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: vault
+  namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: {{ .Values.project }}
+  project: sre-bootcamp
   source:
-    repoURL: {{ .Values.repoURL | quote }}
-    targetRevision: {{ .Values.targetRevision | quote }}
+    repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
+    targetRevision: main
     path: helm/vault
     helm:
       releaseName: vault

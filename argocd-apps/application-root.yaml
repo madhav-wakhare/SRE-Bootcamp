@@ -1,0 +1,35 @@
+---
+# The app-of-apps root: an Application whose source is this very folder. After
+# the first `kubectl apply -f argocd-apps/`, everything above is managed from
+# git — add a new application-*.yaml file here, push, and Argo CD creates that
+# Application on its own.
+# "app-of-apps" means: an Application whose job is to manage other Applications, by managing the directory they're defined in.
+#
+# Wave -1 so the root reconciles before the Applications it manages.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sre-bootcamp-root
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: sre-bootcamp
+  source:
+    repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
+    targetRevision: main
+    path: argocd-apps # This is pointing to the folder containing the Argo CD Application manifests for the other components. The root Application is in this folder, so it points to itself.
+    directory:
+      recurse: false # We don't want to recurse into subfolders, because the other Applications are in this folder and we don't want to create an Application for each of them. We only want to create an Application for this folder itself.
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

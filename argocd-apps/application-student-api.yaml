@@ -1,3 +1,4 @@
+---
 # Wave 4 — the REST API. This is the one CI touches: the "update-image-tag" job
 # rewrites image.tag in helm/student-api/values.yaml, and Argo CD rolls the new
 # image out from that commit.
@@ -5,15 +6,16 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: student-api
+  namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "4"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: {{ .Values.project }}
+  project: sre-bootcamp
   source:
-    repoURL: {{ .Values.repoURL | quote }}
-    targetRevision: {{ .Values.targetRevision | quote }}
+    repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
+    targetRevision: main
     path: helm/student-api
     helm:
       releaseName: student-api

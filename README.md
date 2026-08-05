@@ -296,8 +296,10 @@ helm/
 ├── eso-config/           # ClusterSecretStore wiring ESO to Vault over Kubernetes auth
 ├── postgres-db/          # PostgreSQL StatefulSet, headless Service, ConfigMap, ExternalSecret
 ├── student-api/          # REST API Deployment (Alembic initContainer), NodePort Service, ConfigMap, ExternalSecret
-├── argocd/               # Wrapper around the community Argo CD chart (vendored, like external-secrets)
-└── argocd-apps/          # Declarative Argo CD config: AppProject, repo Secret, one Application per chart
+└── argocd/               # Wrapper around the community Argo CD chart (vendored, like external-secrets)
+
+argocd-apps/              # Plain Kubernetes YAML, no Helm chart: AppProject, repo Secret,
+                           # one Application per chart above, and the app-of-apps root
 ```
 
 Each chart follows the same conventions:
@@ -322,7 +324,8 @@ Each chart follows the same conventions:
 | `postgres-db` | `postgres-db` | `student-api` | StatefulSet + Service `postgres-db`, Secret `postgres-db-secret` |
 | `student-api` | `student-api` | `student-api` | Deployment + NodePort Service `student-api`, Secret `student-api-db-url` |
 | `argocd` | `argocd` | `argocd` | Argo CD controller, repo-server, server, redis, CRDs |
-| `argocd-apps` | `argocd-apps` | `argocd` | AppProject `sre-bootcamp`, repository Secret, the Applications |
+
+`argocd-apps/` (plain YAML, not a chart, no release) additionally creates the AppProject `sre-bootcamp`, the repository Secret, and the Applications — see [argocd-apps/README.md](argocd-apps/README.md).
 
 Release names intentionally match the chart names, which keeps the generated
 resource names short and predictable. The DNS name
@@ -511,14 +514,14 @@ writes a commit. Argo CD, running inside the cluster, does the rest.
 
 ### Components
 
-| Chart | What it is |
+| Folder | What it is |
 | --- | --- |
 | [`helm/argocd`](helm/argocd/) | Argo CD itself — a wrapper around the community chart, vendored into `charts/` exactly like the External Secrets Operator chart. The only component Argo CD does not manage; something has to deploy the deployer |
-| [`helm/argocd-apps`](helm/argocd-apps/) | The declarative configuration: the `sre-bootcamp` AppProject, the repository Secret, one `Application` per chart, and the app-of-apps root |
+| [`argocd-apps/`](argocd-apps/) | The declarative configuration, as plain YAML: the `sre-bootcamp` AppProject, the repository Secret, one `Application` per chart, and the app-of-apps root |
 
 Nothing is created with `argocd app create` or `argocd repo add`. Every Argo CD
-object is a Kubernetes manifest rendered by a chart in this repository, so a
-deployment change is reviewable in a pull request.
+object is a Kubernetes manifest committed to this repository, so a deployment
+change is reviewable in a pull request.
 
 All Argo CD components run in the **`argocd`** namespace on the
 **`dependent_services`** node — `argo-cd.global.nodeSelector` in
@@ -547,12 +550,11 @@ truth for what runs in the cluster.
 | `eso-config` | `helm/eso-config` | `eso-ns` | 2 |
 | `postgres-db` | `helm/postgres-db` | `student-api` | 3 |
 | `student-api` | `helm/student-api` | `student-api` | 4 |
-| `sre-bootcamp-root` | `helm/argocd-apps` | `argocd` | −1 |
+| `sre-bootcamp-root` | `argocd` (a `directory` source, not `helm`) | `argocd` | −1 |
 
-`sre-bootcamp-root` is the app-of-apps: it points back at the `argocd-apps`
-chart, so after the one bootstrap install the Applications themselves are
-managed by git — add another `application-*.yaml` file under
-[helm/argocd-apps/templates/](helm/argocd-apps/templates/), push, and Argo CD
+`sre-bootcamp-root` is the app-of-apps: it points back at the [`argocd-apps/`](argocd-apps/)
+folder itself, so after the one bootstrap apply the Applications are managed
+by git — add another `application-*.yaml` file there, push, and Argo CD
 creates the Application on its own.
 
 All of them auto-sync with `prune` and `selfHeal` on.
@@ -564,16 +566,15 @@ bootstrap of an empty cluster, nothing else — Argo CD creates the namespaces a
 deploys the whole stack itself.
 
 ```bash
+# 0. Push the argocd-apps/ folder to the branch you're about to point Argo CD at —
+#    the root Application's own source path needs to exist in git already.
+git push
+
 # 1. Install Argo CD (namespace argocd, dependent_services node)
 make argocd-install
 
-# 2. Point it at this repository. ARGOCD_REVISION is the branch it tracks.
-#    Disable the root app on the very first run: helm/argocd-apps does not exist
-#    on the tracked branch until this commit is pushed.
-make argocd-apps-install ARGOCD_REVISION=main \
-  ARGOCD_APPS_EXTRA='--set rootApp=false'
-
-# 3. Once pushed, re-run with the root app enabled (the default)
+# 2. Apply the AppProject, repository Secret, the five Applications, and the
+#    app-of-apps root, all in one shot. ARGOCD_REVISION is the branch to track.
 make argocd-apps-install ARGOCD_REVISION=main
 ```
 
@@ -674,7 +675,7 @@ A few settings exist for non-obvious reasons and are worth keeping:
 | --- | --- | --- |
 | Application `Unknown` with `path does not exist` | The tracked branch does not have that chart yet | Push the branch, or install with `ARGOCD_REVISION=<your-branch>` |
 | Application stays `OutOfSync` right after a successful sync | Server-side diff is off | Check `kubectl get cm argocd-cmd-params-cm -n argocd -o jsonpath='{.data.controller\.diff\.server\.side}'` is `true`, then restart the controller |
-| `helm upgrade` of `argocd-apps` fails with a field-manager conflict | An Application was edited with `kubectl patch`, which took ownership of the field | Re-apply with `helm template ... \| kubectl apply --server-side --force-conflicts --field-manager=helm` once, then use Helm again |
+| `kubectl apply -f argocd-apps/` fails with a field-manager conflict | An Application was edited with `kubectl patch`, which took ownership of the field | Re-apply with `kubectl apply --server-side --force-conflicts -f argocd-apps/` once |
 | A manual `kubectl` change keeps reverting | Working as designed — `selfHeal` | Make the change in git |
 | CI's tag commit is rejected | Branch protection blocks `GITHUB_TOKEN` | Add a `GITOPS_TOKEN` secret (a PAT with `contents: write`) |
 | Applications `Synced` but pods stuck in `CreateContainerConfigError` | Vault sealed, so ESO has not created the Secrets | `make vault-unseal` |

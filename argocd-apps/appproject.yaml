@@ -1,0 +1,30 @@
+---
+# The project every Application below belongs to. It fences GitOps in: only
+# this repository may be used as a source, and only these namespaces may be
+# deployed into.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: sre-bootcamp
+  namespace: argocd
+spec:
+  description: Student REST API stack, deployed from the Helm charts in this repository
+  sourceRepos:
+    - https://github.com/madhav-wakhare/SRE-Bootcamp.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: eso-ns
+    - server: https://kubernetes.default.svc
+      namespace: vault
+    - server: https://kubernetes.default.svc
+      namespace: student-api
+  # This stack also creates cluster-scoped objects: Namespaces, the ESO CRDs,
+  # ClusterRoles, and the ClusterSecretStore.
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
