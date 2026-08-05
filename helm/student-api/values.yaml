@@ -13,7 +13,7 @@ image:
   # THIS LINE IS WRITTEN BY CI. The "update-image-tag" job rewrites it to the
   # commit SHA it just pushed to Docker Hub (`make helm-set-image-tag`), and
   # Argo CD deploys whatever it finds here.
-  tag: "2832577"
+  tag: "a0a5c14"
   pullPolicy: IfNotPresent
 
 # Run the API on the node labelled type=application.
