@@ -21,8 +21,11 @@ spec:
     repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
     targetRevision: main
     path: argocd-apps # This is pointing to the folder containing the Argo CD Application manifests for the other components. The root Application is in this folder, so it points to itself.
-    directory:
-      recurse: false # We don't want to recurse into subfolders, because the other Applications are in this folder and we don't want to create an Application for each of them. We only want to create an Application for this folder itself.
+    # No `directory:` block needed -- recurse defaults to false, which is what
+    # we want (don't descend into subfolders). Spelling it out here caused a
+    # permanent cosmetic OutOfSync: Argo CD drops default-valued fields when it
+    # writes this object back, so an explicit "recurse: false" never matches
+    # the live object it's compared against.
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
