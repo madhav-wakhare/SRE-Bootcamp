@@ -1,18 +1,20 @@
+---
 # Wave 2 — the ClusterSecretStore pointing ESO at Vault. It reports NotReady
 # until Vault is unsealed and configured, which does not block the sync.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: eso-config
+  namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "2"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: {{ .Values.project }}
+  project: sre-bootcamp
   source:
-    repoURL: {{ .Values.repoURL | quote }}
-    targetRevision: {{ .Values.targetRevision | quote }}
+    repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
+    targetRevision: main
     path: helm/eso-config
     helm:
       releaseName: eso-config

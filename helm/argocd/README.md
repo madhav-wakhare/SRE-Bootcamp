@@ -8,8 +8,8 @@ re-run `helm dependency build` after bumping the version.
 
 This chart installs the GitOps controller itself. It is the one component of
 the stack that Argo CD does **not** manage: something has to deploy the
-deployer. What Argo CD then deploys is described by the sibling
-[`argocd-apps`](../argocd-apps/) chart.
+deployer. What Argo CD then deploys is described by the plain YAML manifests
+in [`argocd-apps/`](../../argocd-apps/) at the repository root.
 
 ## What this chart creates
 

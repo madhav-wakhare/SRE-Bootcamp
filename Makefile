@@ -213,7 +213,7 @@ k8s-manifest-teardown:
 # Chart location and one release per component. Release names deliberately match
 # the chart names so the generated resource names stay short and predictable
 # (e.g. release "postgres-db" of chart "postgres-db" -> service "postgres-db").
-.PHONY: helm-legacy-cleanup helm-deps helm-lint helm-template helm-package \
+.PHONY: helm-legacy-cleanup helm-deps helm-lint helm-template helm-package argocd-validate \
         helm-install-eso-operator helm-install-vault \
         vault-status vault-init vault-unseal vault-configure vault-seed vault-setup helm-vault-reset \
         helm-install-eso-config helm-install-postgres helm-install-student-api helm-install-all \
@@ -288,7 +288,12 @@ helm-lint:
 	helm lint $(HELM_DIR)/postgres-db
 	helm lint $(HELM_DIR)/student-api
 	helm lint $(HELM_DIR)/argocd
-	helm lint $(HELM_DIR)/argocd-apps
+
+# $(ARGOCD_DIR)/ is plain YAML, not a Helm chart -- validate it against the
+# live cluster's API schema the same way, just without a `helm template` step.
+argocd-validate:
+	@echo "Validating $(ARGOCD_DIR)/*.yaml against the cluster's API schema..."
+	kubectl apply --dry-run=server -f $(ARGOCD_DIR)/
 
 # Renders every chart and validates it against the live cluster's API schema
 # without applying anything.
@@ -307,7 +312,6 @@ helm-package:
 	helm package $(HELM_DIR)/postgres-db --destination $(CHART_DIST)/
 	helm package $(HELM_DIR)/student-api --destination $(CHART_DIST)/
 	helm package $(HELM_DIR)/argocd --destination $(CHART_DIST)/
-	helm package $(HELM_DIR)/argocd-apps --destination $(CHART_DIST)/
 
 # -----------------------------------------------------------------------------
 # Install, one component per target, in dependency order
@@ -497,17 +501,14 @@ helm-uninstall-all:
 
 ARGOCD_NS            ?= argocd
 ARGOCD_RELEASE       ?= argocd
-ARGOCD_APPS_RELEASE  ?= argocd-apps
+# Plain-YAML manifests applied with kubectl -- see argocd-apps/README.md.
+ARGOCD_DIR           ?= argocd-apps
 # Branch (or tag/commit) Argo CD tracks. Override to deploy from a feature
 # branch, e.g. `make argocd-bootstrap ARGOCD_REVISION=k8s`.
 ARGOCD_REVISION      ?= main
 # Local port for `make argocd-ui`. The NodePort of a Minikube docker-driver node
 # is not reachable from the host on macOS, so the UI is port-forwarded too.
 ARGOCD_UI_PORT       ?= 8090
-# Extra flags appended to the argocd-apps install, e.g.
-# `make argocd-apps-install ARGOCD_APPS_EXTRA='--set rootApp=false'` for the very
-# first install, before helm/argocd-apps exists on the tracked branch.
-ARGOCD_APPS_EXTRA    ?=
 
 # 1. Argo CD itself. This is the only component that is not GitOps-managed --
 #    something has to deploy the deployer.
@@ -519,13 +520,13 @@ argocd-install:
 
 # 2. The declarative Argo CD configuration: AppProject, repository Secret, one
 #    Application per chart, and the root app that keeps them synced from git.
+#    Plain kubectl apply -- no Helm release, no values.yaml. targetRevision is
+#    hardcoded to "main" in every file; the sed below overrides it on the fly
+#    for `make argocd-apps-install ARGOCD_REVISION=<branch>` without touching
+#    the files on disk.
 argocd-apps-install:
-	@echo "Applying Argo CD configuration (revision: $(ARGOCD_REVISION))..."
-	helm upgrade --install $(ARGOCD_APPS_RELEASE) $(HELM_DIR)/argocd-apps \
-		--namespace $(ARGOCD_NS) \
-		--set targetRevision=$(ARGOCD_REVISION) \
-		$(ARGOCD_APPS_EXTRA) \
-		--wait --timeout 2m
+	@echo "Applying Argo CD configuration (revision: $(ARGOCD_REVISION)) from $(ARGOCD_DIR)/..."
+	sed -E 's|^(    targetRevision: ).*|\1$(ARGOCD_REVISION)|' $(ARGOCD_DIR)/*.yaml | kubectl apply -f -
 
 # One command to hand the cluster over to GitOps.
 argocd-bootstrap: argocd-install argocd-apps-install
@@ -584,7 +585,7 @@ argocd-uninstall:
 		kubectl patch $$app -n $(ARGOCD_NS) --type merge \
 			-p '{"metadata":{"finalizers":null}}' >/dev/null || true; \
 	done
-	helm uninstall $(ARGOCD_APPS_RELEASE) --namespace $(ARGOCD_NS) || true
+	kubectl delete -f $(ARGOCD_DIR)/ --ignore-not-found
 	helm uninstall $(ARGOCD_RELEASE) --namespace $(ARGOCD_NS) || true
 	@echo "Done. The stack keeps running, but nothing reconciles it any more."
 

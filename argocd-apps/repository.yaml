@@ -1,0 +1,15 @@
+---
+# Registers this git repository with Argo CD. Argo CD finds this Secret by its
+# label, not by its name. The repository is public, so it holds no
+# credentials — see argocd-apps/README.md for the private-repository version.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sre-bootcamp-repo
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  url: https://github.com/madhav-wakhare/SRE-Bootcamp.git

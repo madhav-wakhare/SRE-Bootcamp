@@ -1,17 +1,19 @@
+---
 # Wave 3 — PostgreSQL, whose password ESO syncs out of Vault.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: postgres-db
+  namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "3"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: {{ .Values.project }}
+  project: sre-bootcamp
   source:
-    repoURL: {{ .Values.repoURL | quote }}
-    targetRevision: {{ .Values.targetRevision | quote }}
+    repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
+    targetRevision: main
     path: helm/postgres-db
     helm:
       releaseName: postgres-db
