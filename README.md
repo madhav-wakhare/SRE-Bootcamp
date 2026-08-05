@@ -680,6 +680,3 @@ A few settings exist for non-obvious reasons and are worth keeping:
 | Applications `Synced` but pods stuck in `CreateContainerConfigError` | Vault sealed, so ESO has not created the Secrets | `make vault-unseal` |
 
 ---
-
-Dummy Commit for Rollback
-
