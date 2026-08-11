@@ -18,7 +18,7 @@ spec:
   project: sre-bootcamp
   source:
     repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
-    targetRevision: main
+    targetRevision: k8s
     path: helm/observability
     helm:
       # Same release name Helm used, so resource names do not change.
