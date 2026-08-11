@@ -164,6 +164,31 @@ prometheus:
 
         # --- Node metrics ----------------------------------------------------
         # One target per node, since node-exporter is a DaemonSet.
+        #
+        # How one target is produced, end to end:
+        #
+        #   ask the Kubernetes API for endpoints in observability-ns
+        #                    |
+        #                    v
+        #   ~14 candidates, each carrying ~50 __meta_ labels
+        #                    |
+        #                    v
+        #   rule 1: keep only service_name == node-exporter
+        #                    |
+        #                    v
+        #   4 targets survive, one per node
+        #                    |
+        #                    v
+        #   rule 2: instance = the node name
+        #                    |
+        #                    v
+        #   every __ label is dropped
+        #                    |
+        #                    v
+        #   GET http://192.168.49.3:9100/metrics every 30s
+        #                    |
+        #                    v
+        #   node_load1{job="node-exporter", instance="minikube-m02"} 0.42
         - job_name: node-exporter
           kubernetes_sd_configs:
             - role: endpoints
