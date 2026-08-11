@@ -160,6 +160,12 @@ k8s-cluster-up:
 		--driver=$(MINIKUBE_DRIVER) \
 		--cpus=$(MINIKUBE_CPUS) \
 		--memory=$(MINIKUBE_MEMORY)
+	@echo "Enabling the local-path storage provisioner..."
+	@echo "  Minikube's built-in 'standard' class binds a volume BEFORE the scheduler"
+	@echo "  picks a node, so on a multi-node cluster the directory is created on the"
+	@echo "  wrong machine. local-path waits for scheduling first (WaitForFirstConsumer),"
+	@echo "  which is what Prometheus, Loki and Grafana need to start at all."
+	minikube addons enable storage-provisioner-rancher -p $(MINIKUBE_PROFILE)
 	@$(MAKE) k8s-cluster-label
 
 # Cordons the control-plane and labels each worker with its role. Both
@@ -216,18 +222,25 @@ k8s-manifest-teardown:
 .PHONY: helm-legacy-cleanup helm-deps helm-lint helm-template helm-package argocd-validate \
         helm-install-eso-operator helm-install-vault \
         vault-status vault-init vault-unseal vault-configure vault-seed vault-setup helm-vault-reset \
-        helm-install-eso-config helm-install-postgres helm-install-student-api helm-install-all \
-        helm-status helm-verify helm-uninstall-all
+        helm-install-eso-config helm-install-postgres helm-install-student-api \
+        helm-install-observability helm-install-all \
+        helm-status helm-verify helm-uninstall-all grafana-password grafana-ui prometheus-ui
 
 HELM_DIR        ?= helm
 VAULT_NS        ?= vault
 ESO_NS          ?= eso-ns
+OBS_NS          ?= observability-ns
 VAULT_RELEASE   ?= vault
 ESO_RELEASE     ?= external-secrets
 ESO_CFG_RELEASE ?= eso-config
 DB_RELEASE      ?= postgres-db
 API_RELEASE     ?= student-api
+OBS_RELEASE     ?= observability
 CHART_DIST      ?= dist
+# Local ports for the observability UIs. Same reason as ARGOCD_UI_PORT below:
+# a Minikube docker-driver NodePort is not reachable from the host on macOS.
+GRAFANA_UI_PORT    ?= 3000
+PROMETHEUS_UI_PORT ?= 9090
 # Local port for the helm-verify healthcheck tunnel (see below).
 HEALTHCHECK_LOCAL_PORT ?= 15000
 
@@ -246,6 +259,10 @@ DB_PASSWORD ?= postgres
 # Must resolve to the postgres-db chart's service in the application namespace.
 DB_HOST      = $(DB_RELEASE).$(APP_NS).svc.cluster.local
 DATABASE_URL_VALUE = postgresql://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):5432/$(DB_NAME)
+# Grafana's admin login. Read out of Vault by the observability chart's
+# ExternalSecret rather than being written into any values.yaml.
+GRAFANA_ADMIN_USER     ?= admin
+GRAFANA_ADMIN_PASSWORD ?= admin
 
 # Reads a field out of the keys file produced by `make vault-init`.
 VAULT_JSON = python3 -c "import json,sys; print(json.load(open('$(VAULT_KEYS)'))[sys.argv[1]] if sys.argv[1]=='root_token' else json.load(open('$(VAULT_KEYS)'))['unseal_keys_b64'][0])"
@@ -279,6 +296,7 @@ helm-deps:
 	@echo "Building chart dependencies..."
 	helm dependency build $(HELM_DIR)/external-secrets
 	helm dependency build $(HELM_DIR)/argocd
+	helm dependency build $(HELM_DIR)/observability
 
 helm-lint:
 	@echo "Linting all Helm charts..."
@@ -288,6 +306,7 @@ helm-lint:
 	helm lint $(HELM_DIR)/postgres-db
 	helm lint $(HELM_DIR)/student-api
 	helm lint $(HELM_DIR)/argocd
+	helm lint $(HELM_DIR)/observability
 
 # $(ARGOCD_DIR)/ is plain YAML, not a Helm chart -- validate it against the
 # live cluster's API schema the same way, just without a `helm template` step.
@@ -302,6 +321,7 @@ helm-template:
 	helm template $(ESO_CFG_RELEASE) $(HELM_DIR)/eso-config -n $(ESO_NS) | kubectl apply -n $(ESO_NS) --dry-run=server -f -
 	helm template $(DB_RELEASE) $(HELM_DIR)/postgres-db -n $(APP_NS) | kubectl apply -n $(APP_NS) --dry-run=server -f -
 	helm template $(API_RELEASE) $(HELM_DIR)/student-api -n $(APP_NS) | kubectl apply -n $(APP_NS) --dry-run=server -f -
+	helm template $(OBS_RELEASE) $(HELM_DIR)/observability -n $(OBS_NS) | kubectl apply -n $(OBS_NS) --dry-run=server -f -
 
 helm-package:
 	@echo "Packaging all Helm charts into $(CHART_DIST)/..."
@@ -312,6 +332,7 @@ helm-package:
 	helm package $(HELM_DIR)/postgres-db --destination $(CHART_DIST)/
 	helm package $(HELM_DIR)/student-api --destination $(CHART_DIST)/
 	helm package $(HELM_DIR)/argocd --destination $(CHART_DIST)/
+	helm package $(HELM_DIR)/observability --destination $(CHART_DIST)/
 
 # -----------------------------------------------------------------------------
 # Install, one component per target, in dependency order
@@ -395,8 +416,11 @@ vault-seed:
 		env VAULT_TOKEN="$$($(VAULT_JSON) root_token)" \
 		vault kv put $(VAULT_KV_MOUNT)/$(VAULT_KV_PATH) \
 		  db_password="$(DB_PASSWORD)" \
-		  db_url="$(DATABASE_URL_VALUE)"
+		  db_url="$(DATABASE_URL_VALUE)" \
+		  grafana_admin_user="$(GRAFANA_ADMIN_USER)" \
+		  grafana_admin_password="$(GRAFANA_ADMIN_PASSWORD)"
 	@echo "Seeded. db_url points at $(DB_HOST):5432/$(DB_NAME)"
+	@echo "         grafana admin user is $(GRAFANA_ADMIN_USER)"
 
 # Everything Vault needs after `make helm-install-vault`.
 vault-setup: vault-init vault-unseal vault-configure vault-seed
@@ -433,9 +457,33 @@ helm-install-student-api:
 		--namespace $(APP_NS) --create-namespace \
 		--wait --timeout 5m
 
+# 6. The observability stack. Last, because it monitors everything above: the
+#    blackbox exporter probes Argo CD, Vault and the REST API, and
+#    postgres-exporter connects to the database.
+#
+#    Needs the local-path StorageClass -- the default "standard" binds volumes
+#    before the scheduler picks a node, so on a multi-node cluster the directory
+#    is created on the wrong machine and Prometheus, Loki and Grafana crash-loop:
+#      minikube addons enable storage-provisioner-rancher
+helm-install-observability:
+	@kubectl get storageclass local-path >/dev/null 2>&1 || { \
+		echo ""; \
+		echo "StorageClass 'local-path' not found -- refusing to install."; \
+		echo ""; \
+		echo "Prometheus, Loki and Grafana each take a PVC. Without this class their"; \
+		echo "volumes stay Pending and the install sits here until it times out."; \
+		echo ""; \
+		echo "  minikube addons enable storage-provisioner-rancher -p $(MINIKUBE_PROFILE)"; \
+		echo ""; \
+		exit 1; }
+	@echo "Deploying the observability stack in namespace $(OBS_NS)..."
+	helm upgrade --install $(OBS_RELEASE) $(HELM_DIR)/observability \
+		--namespace $(OBS_NS) --create-namespace \
+		--wait --timeout 10m
+
 # One command for the whole stack, in order, including the Vault bootstrap.
 # Safe to re-run: every step is idempotent.
-helm-install-all: helm-install-eso-operator helm-install-vault vault-setup helm-install-eso-config helm-install-postgres helm-install-student-api
+helm-install-all: helm-install-eso-operator helm-install-vault vault-setup helm-install-eso-config helm-install-postgres helm-install-student-api helm-install-observability
 	@echo ""
 	@echo "==========================================================="
 	@echo "Stack deployed. Verify with: make helm-verify"
@@ -463,6 +511,12 @@ helm-verify:
 	@echo "--- Application namespace ---"
 	@kubectl get pods,svc -n $(APP_NS)
 	@echo ""
+	@echo "--- Observability namespace ---"
+	@kubectl get pods -n $(OBS_NS) -o wide 2>/dev/null || echo "  (not deployed)"
+	@echo ""
+	@echo "--- Observability ExternalSecrets (STATUS must be SecretSynced) ---"
+	@kubectl get externalsecret -n $(OBS_NS) 2>/dev/null || echo "  (not deployed)"
+	@echo ""
 	@echo "--- Healthcheck (via kubectl port-forward) ---"
 	@echo "(NodePort is not used here: the Minikube docker driver on macOS never"
 	@echo " exposes it to the host -- only a fixed port set is docker-published"
@@ -477,8 +531,28 @@ helm-verify:
 		|| echo "  (unreachable -- check 'kubectl logs -n $(APP_NS) deploy/$(API_RELEASE)' and /tmp/helm-verify-portforward.log)"; \
 	echo
 
+# -----------------------------------------------------------------------------
+# Observability shortcuts
+# -----------------------------------------------------------------------------
+# Grafana's admin password lives in Vault and is synced into this Secret by ESO.
+grafana-password:
+	@kubectl get secret grafana-admin -n $(OBS_NS) -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+# Grafana is ClusterIP on purpose: it is the single front door, and Prometheus
+# and Loki are never exposed. Log in as the user seeded by `make vault-seed`.
+grafana-ui:
+	@echo "Grafana:    http://localhost:$(GRAFANA_UI_PORT)   (user: $(GRAFANA_ADMIN_USER), password: make grafana-password)"
+	kubectl port-forward -n $(OBS_NS) svc/grafana $(GRAFANA_UI_PORT):80
+
+# Status -> Target health is the fastest way to see whether every exporter is
+# being scraped. Expect 6 jobs, with node-exporter showing one target per node.
+prometheus-ui:
+	@echo "Prometheus: http://localhost:$(PROMETHEUS_UI_PORT)"
+	kubectl port-forward -n $(OBS_NS) svc/prometheus-server $(PROMETHEUS_UI_PORT):80
+
 helm-uninstall-all:
 	@echo "Uninstalling all Helm releases..."
+	helm uninstall $(OBS_RELEASE) --namespace $(OBS_NS) || true
 	helm uninstall $(API_RELEASE) --namespace $(APP_NS) || true
 	helm uninstall $(DB_RELEASE) --namespace $(APP_NS) || true
 	helm uninstall $(ESO_CFG_RELEASE) --namespace $(ESO_NS) || true
@@ -487,6 +561,7 @@ helm-uninstall-all:
 	@echo "PVCs are kept on purpose. Delete them explicitly to discard the data:"
 	@echo "  kubectl delete pvc -n $(APP_NS) --all"
 	@echo "  kubectl delete pvc -n $(VAULT_NS) --all"
+	@echo "  kubectl delete pvc -n $(OBS_NS) --all"
 
 # =============================================================================
 # 6. GitOps with Argo CD

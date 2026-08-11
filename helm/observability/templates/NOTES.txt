@@ -1,0 +1,36 @@
+The observability stack was installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Two independent pipelines are now running. They only meet inside Grafana:
+
+    exporters ──scraped by──► Prometheus ──┐
+                                           ├──► Grafana
+    pods ──tailed by──► Promtail ──► Loki ─┘
+
+Open Grafana (username "admin", password from Vault via ESO):
+
+    kubectl get secret {{ .Values.externalSecret.grafana.secretName }} -n {{ .Release.Namespace }} -o jsonpath='{.data.admin-password}' | base64 -d; echo
+    kubectl port-forward -n {{ .Release.Namespace }} svc/grafana 3000:80
+
+Both datasources are provisioned already — no clicking required.
+
+Check every scrape target is UP (Status -> Target health):
+
+    kubectl port-forward -n {{ .Release.Namespace }} svc/prometheus-server 9090:80
+
+Expect 6 jobs: prometheus, node-exporter (one target per node),
+kube-state-metrics, postgres-exporter, blackbox-http, blackbox-https.
+
+Confirm only application logs reach Loki:
+
+    kubectl exec -n {{ .Release.Namespace }} deploy/grafana -- wget -qO- \
+      'http://loki.{{ .Release.Namespace }}.svc.cluster.local:3100/loki/api/v1/label/namespace/values'
+
+Should return exactly {"status":"success","data":["student-api"]}.
+
+Two secrets come from Vault. Until both report SecretSynced, postgres-exporter
+and Grafana stay in CreateContainerConfigError:
+
+    kubectl get externalsecret -n {{ .Release.Namespace }}
+
+If they never sync, `make vault-seed` has not written
+{{ .Values.externalSecret.grafana.remotePasswordProperty }} to {{ .Values.externalSecret.remoteKey }} yet.

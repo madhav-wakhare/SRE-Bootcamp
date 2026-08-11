@@ -1,0 +1,698 @@
+# =============================================================================
+# helm/observability — values forwarded to the upstream subcharts.
+#
+# Install with:
+#   helm dependency build ./helm/observability      # only after changing Chart.yaml
+#   helm upgrade --install observability ./helm/observability \
+#     -n observability-ns --create-namespace
+#
+# Every top-level key below matches a dependency name in Chart.yaml, so the
+# block under it belongs to that upstream chart. Anything not overridden here
+# falls back to that chart's own defaults.
+#
+# Two pipelines live in this chart and they never talk to each other:
+#
+#   METRICS   exporters ──scraped by──► Prometheus ──┐
+#                                                    ├──► Grafana
+#   LOGS      pods ──tailed by──► Promtail ──► Loki ─┘
+#
+# Grafana is the only place they meet. It stores nothing itself.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Shared settings
+#
+# `fullnameOverride` is set on every subchart. Without it Helm names resources
+# <release>-<chart>, giving mouthfuls like
+# "observability-prometheus-node-exporter". The Prometheus scrape jobs further
+# down have to match those Service names exactly, and a mismatch fails
+# silently — the job simply reports zero targets, with no error anywhere. So we
+# declare the names instead of discovering them.
+# -----------------------------------------------------------------------------
+
+# =============================================================================
+# PROMETHEUS — scrapes /metrics endpoints, stores samples, answers PromQL
+# =============================================================================
+prometheus:
+  # This chart can install its own copies of node-exporter, kube-state-metrics
+  # and alertmanager. We install those as siblings instead (see Chart.yaml), so
+  # switch the bundled ones off or we would run two of each.
+  #
+  # These keys must match the subchart names in the upstream Chart.yaml
+  # exactly. Helm ignores unknown keys without an error, so a typo here quietly
+  # leaves a component enabled.
+  alertmanager:
+    enabled: false
+  kube-state-metrics:
+    enabled: false
+  prometheus-node-exporter:
+    enabled: false
+  prometheus-pushgateway:
+    enabled: false
+
+  # Turn off the chart's 10 built-in scrape jobs so that every job further down
+  # is one we wrote and understand.
+  #
+  # This chart assembles scrape_configs from TWO places: this `scrapeConfigs`
+  # map (its defaults, keyed by job name) and the
+  # `serverFiles.prometheus.yml.scrape_configs` list below (ours), appended
+  # after. Our list therefore does not replace the defaults — and both define a
+  # job called "prometheus", which makes Prometheus refuse to start.
+  #
+  # Each default carries its own `enabled` flag, which is what we use. Setting
+  # `scrapeConfigs: null` works for a top-level chart but NOT here: Helm does
+  # not propagate null-deletion down into a subchart's values.
+  #
+  # Worth revisiting later — `kubernetes-nodes-cadvisor` in particular gives
+  # per-container CPU and memory, which neither node-exporter (per machine) nor
+  # kube-state-metrics (object state) provides.
+  scrapeConfigs:
+    prometheus:
+      enabled: false                       # replaced by our own below
+    kubernetes-api-servers:
+      enabled: false
+    kubernetes-nodes:
+      enabled: false
+    kubernetes-nodes-cadvisor:
+      enabled: false
+    kubernetes-service-endpoints:
+      enabled: false
+    kubernetes-service-endpoints-slow:
+      enabled: false
+    kubernetes-services:
+      enabled: false
+    kubernetes-pods:
+      enabled: false
+    kubernetes-pods-slow:
+      enabled: false
+    prometheus-pushgateway:
+      enabled: false
+
+  server:
+    fullnameOverride: prometheus-server
+
+    replicaCount: 1
+
+    # Run the stack on the node labelled type=dependent_services.
+    nodeSelector:
+      type: dependent_services
+
+    # Stop the old pod before starting the new one. The default RollingUpdate
+    # starts the replacement first, but both pods want the same ReadWriteOnce
+    # volume and only one may have it, so the new pod hangs in Pending.
+    strategy:
+      type: Recreate
+
+    persistentVolume:
+      enabled: true
+      size: 10Gi
+      # Must be a WaitForFirstConsumer class on multi-node clusters. The
+      # default "standard" binds the volume before the scheduler picks a node,
+      # so the directory is created on the wrong machine and Prometheus
+      # crash-loops on a read-only mount.
+      #   minikube addons enable storage-provisioner-rancher
+      storageClass: local-path
+
+    # Prometheus holds recent operational data, not an archive.
+    retention: 15d
+
+    service:
+      type: ClusterIP
+
+    # Defaults inherited by every scrape job below.
+    global:
+      scrape_interval: 30s
+      scrape_timeout: 10s
+      evaluation_interval: 30s
+
+    securityContext:
+      runAsUser: 65534
+      runAsGroup: 65534
+      fsGroup: 65534
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  # ---------------------------------------------------------------------------
+  # serverFiles.prometheus.yml IS the Prometheus config file. Helm renders it
+  # into a ConfigMap mounted at /etc/config/prometheus.yml; a sidecar watches
+  # that file and triggers a reload, so config changes need no restart.
+  #
+  # Prometheus never holds a list of IP addresses. `kubernetes_sd_configs` asks
+  # the Kubernetes API who exists, and `relabel_configs` filters that list
+  # down. `role: endpoints` returns the individual pod addresses behind a
+  # Service rather than the Service's virtual IP — important, because scraping
+  # the virtual IP would load-balance to a random pod each time and mix several
+  # machines' data under one identity.
+  # ---------------------------------------------------------------------------
+  serverFiles:
+    prometheus.yml:
+      scrape_configs:
+
+        # --- Prometheus itself -----------------------------------------------
+        # If monitoring breaks you need metrics about the monitoring. Same pod,
+        # so no discovery is needed.
+        - job_name: prometheus
+          static_configs:
+            - targets:
+                - localhost:9090
+
+        # --- Node metrics ----------------------------------------------------
+        # One target per node, since node-exporter is a DaemonSet.
+        - job_name: node-exporter
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                names: [observability-ns]
+          relabel_configs:
+            # Keep only node-exporter's endpoints, drop every other Service.
+            - source_labels: [__meta_kubernetes_service_name]
+              regex: node-exporter
+              action: keep
+            # Label each target with its node name instead of an IP:port, so
+            # dashboards read "minikube-m02" and stay stable when IPs change.
+            - source_labels: [__meta_kubernetes_endpoint_node_name]
+              target_label: instance
+              action: replace
+
+        # --- Kubernetes object state -----------------------------------------
+        # No `instance` rewrite here: kube-state-metrics reports on the whole
+        # cluster and merely happens to be scheduled on some node. Labelling it
+        # with that node would imply the data belongs to it.
+        - job_name: kube-state-metrics
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                names: [observability-ns]
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_name]
+              regex: kube-state-metrics
+              action: keep
+            # `role: endpoints` also discovers a pod's container ports that no
+            # Service port maps to. kube-state-metrics listens on 8081 for its
+            # OWN telemetry (kube_state_metrics_*), which is a different metric
+            # set and would show up here as a second, unlabelled target.
+            # Keeping the named Service port scrapes only the object metrics.
+            - source_labels: [__meta_kubernetes_endpoint_port_name]
+              regex: http
+              action: keep
+
+        # --- Database metrics ------------------------------------------------
+        # postgres-exporter connects to PostgreSQL and republishes its
+        # statistics. Prometheus scrapes the exporter, never the database.
+        - job_name: postgres-exporter
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                names: [observability-ns]
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_name]
+              regex: postgres-exporter
+              action: keep
+
+        # --- Endpoint probing (plain HTTP) -----------------------------------
+        # The blackbox pattern is different from every job above. Prometheus
+        # does NOT scrape the endpoints listed here — it scrapes the blackbox
+        # exporter, passing each endpoint as a ?target= query parameter. The
+        # exporter probes the URL and reports how it went.
+        #
+        # The three relabel rules perform that swap:
+        #   1. copy the listed URL into the __param_target query parameter
+        #   2. copy it into `instance` too, so the metric is labelled with the
+        #      endpoint being probed rather than with the exporter
+        #   3. overwrite __address__ with the exporter, which is where the
+        #      request is actually sent
+        - job_name: blackbox-http
+          metrics_path: /probe
+          params:
+            module: [http_2xx]
+          static_configs:
+            - targets:
+                # The REST API's own health endpoint.
+                - http://student-api.student-api.svc.cluster.local:5000/healthcheck
+                # Vault: returns 200 only when unsealed and active. A sealed
+                # Vault reports 503 and shows up here as a failed probe, which
+                # is the correct answer.
+                - http://vault.vault.svc.cluster.local:8200/v1/sys/health
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: __param_target
+            - source_labels: [__param_target]
+              target_label: instance
+            - target_label: __address__
+              replacement: blackbox-exporter.observability-ns.svc.cluster.local:9115
+
+        # --- Endpoint probing (HTTPS with a self-signed certificate) ---------
+        # Argo CD's server presents its own certificate, so it needs the module
+        # that skips certificate verification. Same three relabel rules.
+        - job_name: blackbox-https
+          metrics_path: /probe
+          params:
+            module: [http_2xx_insecure_tls]
+          static_configs:
+            - targets:
+                - https://argocd-server.argocd.svc.cluster.local/healthz
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: __param_target
+            - source_labels: [__param_target]
+              target_label: instance
+            - target_label: __address__
+              replacement: blackbox-exporter.observability-ns.svc.cluster.local:9115
+
+# =============================================================================
+# KUBE-STATE-METRICS — Kubernetes object state
+#
+# Reads the Kubernetes API and publishes facts about objects: how many replicas
+# a Deployment wants versus how many are ready, pod phases, restart counts.
+# A Deployment, not a DaemonSet: there is only one API server view, so a copy
+# per node would produce duplicate series.
+# =============================================================================
+kube-state-metrics:
+  fullnameOverride: kube-state-metrics
+
+  replicas: 1
+
+  nodeSelector:
+    type: dependent_services
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  # rbac.create defaults to true and is required: this needs a cluster-wide
+  # ClusterRole to read every object type. The verbs are get/list/watch only,
+  # which is what makes such broad access safe.
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# =============================================================================
+# NODE-EXPORTER — per-machine metrics
+#
+# Reads /proc and /sys and republishes them: CPU, memory, disk, network. Those
+# files are per-machine, so this must be a DaemonSet — there is no remote API
+# for another node's kernel. It never talks to the Kubernetes API at all.
+# =============================================================================
+prometheus-node-exporter:
+  fullnameOverride: node-exporter
+
+  # Deliberately empty. A nodeSelector here would blind us to every node it
+  # excluded. This is infrastructure, not a workload, so the deployment
+  # diagram's node placement does not apply.
+  nodeSelector: {}
+
+  # Tolerate every taint. A node that is cordoned, tainted or draining is
+  # exactly the node whose metrics matter most.
+  tolerations:
+    - operator: Exists
+
+  service:
+    type: ClusterIP
+    port: 9100
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# =============================================================================
+# POSTGRES-EXPORTER — database metrics
+#
+# Connects to PostgreSQL as a client, runs statistics queries, and republishes
+# the results as metrics. Prometheus scrapes this exporter; it never speaks to
+# the database itself.
+#
+# The password is never written here. templates/externalsecret-postgres.yaml
+# has External Secrets Operator read it from Vault into the Secret named below,
+# exactly as the postgres-db and student-api charts do.
+# =============================================================================
+prometheus-postgres-exporter:
+  fullnameOverride: postgres-exporter
+
+  replicaCount: 1
+
+  nodeSelector:
+    type: dependent_services
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  config:
+    datasource:
+      # The postgres-db chart's headless Service, in the application namespace.
+      host: postgres-db.student-api.svc.cluster.local
+      port: "5432"
+      user: postgres
+      database: students_db
+      # In-cluster traffic on a single minikube; no TLS between the exporter
+      # and the database.
+      sslmode: disable
+      # Read from the Secret that ESO fills from Vault.
+      passwordSecret:
+        name: postgres-exporter-db
+        key: DB_PASSWORD
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# =============================================================================
+# BLACKBOX-EXPORTER — endpoint probing
+#
+# Every other exporter reports on itself. This one probes somebody else: give
+# it a URL and it reports whether the request succeeded, what status code came
+# back, and how long each phase took (DNS, connect, TLS, first byte).
+#
+# That is what answers the milestone's "latency, uptime, etc." for the Argo CD
+# server, Vault, and the REST API. The endpoint list lives in the Prometheus
+# scrape jobs above, not here — this section only defines HOW to probe.
+# =============================================================================
+prometheus-blackbox-exporter:
+  fullnameOverride: blackbox-exporter
+
+  replicaCount: 1
+
+  nodeSelector:
+    type: dependent_services
+
+  service:
+    type: ClusterIP
+    port: 9115
+
+  config:
+    modules:
+      # Plain HTTP, expects a 2xx response.
+      http_2xx:
+        prober: http
+        timeout: 5s
+        http:
+          valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+          follow_redirects: true
+          preferred_ip_protocol: ip4
+
+      # Same, but accepts a self-signed certificate. Argo CD's server presents
+      # its own, so verifying it would fail on trust rather than on health.
+      http_2xx_insecure_tls:
+        prober: http
+        timeout: 5s
+        http:
+          valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+          follow_redirects: true
+          preferred_ip_protocol: ip4
+          tls_config:
+            insecure_skip_verify: true
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# =============================================================================
+# LOKI — log storage
+#
+# The mirror image of Prometheus: it fetches nothing, it receives pushes from
+# Promtail. It indexes only labels and stores log text as opaque compressed
+# chunks, which is what makes it cheap.
+#
+# Consequence: never use a label whose value varies per request (request_id,
+# user_id, trace_id). Each distinct combination creates its own stream, and
+# millions of streams is how a Loki install dies. Keep variable data inside the
+# log line and filter it at query time with |= or | json.
+#
+# This chart targets production on AWS by default — a 9-pod split, S3 storage,
+# and memcached caches asking for 8Gi. Most of the settings below switch that
+# off to fit one minikube node.
+# =============================================================================
+loki:
+  fullnameOverride: loki
+
+  # Everything in one pod, instead of the default read/write/backend split.
+  deploymentMode: SingleBinary
+
+  loki:
+    # This means "no multi-tenancy", not "no security". Left at the default
+    # true, every request must carry an X-Scope-OrgID header or gets a 401.
+    auth_enabled: false
+
+    commonConfig:
+      replication_factor: 1     # the default 3 expects 3 ingesters
+
+    storage:
+      type: filesystem          # the default is s3 with empty credentials
+
+    # How the index is laid out on disk. The chart ships an empty {} and Loki
+    # will not start without it. `from` is a schema boundary: to change format
+    # later you APPEND an entry with a future date. Never edit this one, or
+    # existing data becomes unreadable.
+    schemaConfig:
+      configs:
+        - from: "2024-04-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+  singleBinary:
+    replicas: 1                 # the chart default is 0 — without this, no Loki
+    nodeSelector:
+      type: dependent_services
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: local-path
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  # Required. These default to 3 replicas each, and the chart refuses to render
+  # while both singleBinary and these are non-zero.
+  write:
+    replicas: 0
+  read:
+    replicas: 0
+  backend:
+    replicas: 0
+
+  # An nginx proxy in front of the read/write split — pointless with one pod.
+  gateway:
+    enabled: false
+
+  # memcached. chunksCache alone requests 8Gi of memory and would sit Pending
+  # forever on a laptop.
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+
+  # A pod that continuously writes and reads test logs, plus the chart's Helm
+  # test hooks. Useful in production, noise here.
+  lokiCanary:
+    enabled: false
+  test:
+    enabled: false
+
+# =============================================================================
+# PROMTAIL — log shipping agent
+#
+# Tails /var/log/pods on each node and pushes the lines to Loki. A DaemonSet
+# for the same reason as node-exporter: the files are on the node's disk, so a
+# process has to be on that node to read them.
+#
+# It uses the same kubernetes_sd_configs + relabel_configs vocabulary as
+# Prometheus, asking a different question: not "what do I scrape?" but "what
+# files do I tail?". The magic label is __path__ rather than __address__.
+# =============================================================================
+promtail:
+  fullnameOverride: promtail
+
+  config:
+    clients:
+      # The chart default points at loki-gateway, which is disabled above, so
+      # this must be overridden or Promtail fails DNS resolution forever.
+      - url: http://loki.observability-ns.svc.cluster.local:3100/loki/api/v1/push
+
+    snippets:
+      # Appended to the chart's own relabel rules.
+      #
+      # Discovery finds every pod in the cluster. The milestone asks for
+      # application logs only, so keep the application namespace and drop the
+      # rest. Filtering here rather than at query time means those lines are
+      # never read or transmitted at all: less traffic, less storage, fewer
+      # Loki streams. The trade-off is that a failure caused by something in
+      # kube-system leaves no trace here.
+      extraRelabelConfigs:
+        - source_labels: [__meta_kubernetes_namespace]
+          regex: student-api
+          action: keep
+
+  # The filter above has a consequence worth understanding.
+  #
+  # Promtail's own /ready endpoint returns 500 when it has ZERO active targets,
+  # and the chart's default readiness probe uses it. Because we only tail the
+  # student-api namespace, Promtail legitimately has nothing to do on nodes that
+  # run no student-api pods -- so those instances would report themselves
+  # unready forever. That is not a failure, it is the correct outcome, but it
+  # makes `helm --wait` and the default DaemonSet rollout hang indefinitely.
+  #
+  # So point the probe at a question that has a meaningful answer: is the
+  # process up and serving? /metrics returns 200 whenever Promtail is running,
+  # so a crashed or hung agent still fails the probe, but "no work to do" no
+  # longer counts as a failure. Nothing routes traffic to these pods (there is
+  # no Service), so readiness only gates rollouts here.
+  #
+  # Only `path` is overridden, deliberately. Helm MERGES this map into the
+  # chart's default probe rather than replacing it, so adding a different
+  # handler (tcpSocket) would leave both in place and the API server rejects
+  # a probe with two handlers. Overriding the path keeps a single handler.
+  readinessProbe:
+    httpGet:
+      path: /metrics
+
+  # With the probe above every pod does become ready, so the default
+  # one-at-a-time rollout would now work. Replacing them all at once is simply
+  # faster, and a few seconds of missed log lines on a dev cluster is fine.
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# =============================================================================
+# GRAFANA — the query UI
+#
+# Holds no metrics and no logs. Every panel runs a live query against
+# Prometheus or Loki; its own disk stores only dashboards and settings. Delete
+# it and no observability data is lost.
+# =============================================================================
+grafana:
+  fullnameOverride: grafana
+
+  nodeSelector:
+    type: dependent_services
+
+  # The chart's `helm test` hook pod, plus its own ServiceAccount and ConfigMap.
+  # Only runs on `helm test`, but it is rendered by `helm template` and would
+  # show up as three more objects for Argo CD to reconcile. Off, for the same
+  # reason loki.test is off.
+  testFramework:
+    enabled: false
+
+  service:
+    type: ClusterIP
+
+  # Keeps dashboards created through the UI across pod restarts.
+  persistence:
+    enabled: true               # the chart default is false
+    size: 5Gi
+    storageClassName: local-path
+
+  # The admin password comes from Vault via ESO, the same way every other
+  # credential in this repository does. See
+  # templates/externalsecret-grafana.yaml.
+  #
+  # Letting the chart generate a random password would also work, but it
+  # regenerates on every render, which Argo CD would report as permanent drift.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  # Datasources as code. Grafana reads this file at startup, so the same two
+  # datasources exist on every install with no clicking through the UI.
+  #
+  # `access: proxy` means Grafana's own backend issues the query, so these URLs
+  # are resolved inside the cluster. That is why Prometheus and Loki never need
+  # to be exposed — Grafana is the single front door.
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+
+        # --- Metrics ---
+        # Port 80, not 9090. The Service listens on 80 and forwards to the
+        # container's 9090; 9090 is only what a local port-forward uses.
+        - name: Prometheus
+          type: prometheus
+          uid: prometheus
+          url: http://prometheus-server.observability-ns.svc.cluster.local
+          access: proxy
+          isDefault: true
+
+        # --- Logs ---
+        - name: Loki
+          type: loki
+          uid: loki
+          url: http://loki.observability-ns.svc.cluster.local:3100
+          access: proxy
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+# =============================================================================
+# EXTERNAL SECRETS — used by this chart's own templates/
+#
+# Two credentials are read out of Vault rather than written into git: the
+# PostgreSQL password the DB exporter connects with, and Grafana's admin
+# password. Both come from the same KV path the rest of the stack uses.
+# =============================================================================
+externalSecret:
+  # The ClusterSecretStore created by the eso-config chart.
+  secretStore: vault-backend
+  # KV path in Vault holding the application secrets, seeded by `make vault-seed`.
+  remoteKey: one2n/dev/app-config
+  refreshInterval: 1m
+
+  postgresExporter:
+    # Secret this chart creates; referenced by
+    # prometheus-postgres-exporter.config.datasource.passwordSecret above.
+    secretName: postgres-exporter-db
+    # Field inside the Vault KV path holding the PostgreSQL password.
+    remoteProperty: db_password
+
+  grafana:
+    # Secret this chart creates; referenced by grafana.admin.existingSecret.
+    secretName: grafana-admin
+    # Fields inside the Vault KV path holding Grafana's admin credentials.
+    # Both are seeded by `make vault-seed`.
+    remoteUserProperty: grafana_admin_user
+    remotePasswordProperty: grafana_admin_password

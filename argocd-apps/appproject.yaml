@@ -20,6 +20,8 @@ spec:
       namespace: vault
     - server: https://kubernetes.default.svc
       namespace: student-api
+    - server: https://kubernetes.default.svc
+      namespace: observability-ns
   # This stack also creates cluster-scoped objects: Namespaces, the ESO CRDs,
   # ClusterRoles, and the ClusterSecretStore.
   clusterResourceWhitelist:

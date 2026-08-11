@@ -1,0 +1,41 @@
+---
+# Wave 5 — the observability stack, last because it monitors everything else.
+#
+# The blackbox exporter probes the Argo CD server, Vault, and the REST API, and
+# postgres-exporter connects to the database, so all of those should already be
+# up. Nothing breaks if they are not — the probes simply report failures until
+# their targets appear, which is exactly what a monitoring system should do.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: sre-bootcamp
+  source:
+    repoURL: https://github.com/madhav-wakhare/SRE-Bootcamp.git
+    targetRevision: main
+    path: helm/observability
+    helm:
+      # Same release name Helm used, so resource names do not change.
+      releaseName: observability
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability-ns
+  syncPolicy:
+    automated:
+      prune: true      # delete resources removed from git
+      selfHeal: true   # undo changes made with kubectl
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  # No ignoreDifferences needed here, unlike the external-secrets Application.
+  # This chart renders deterministically -- Grafana's admin password comes from
+  # Vault rather than the chart's random generator, so nothing in the manifest
+  # changes between renders.

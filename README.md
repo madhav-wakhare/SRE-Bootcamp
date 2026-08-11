@@ -124,7 +124,15 @@ The Makefile contains targets to build, migrate, and run the services.
    ```bash
    make install
    ```
-3. Configure environment variables. Create a `.env` file at the root of the project:
+3. Configure environment variables. Copy the committed reference and edit it:
+   ```bash
+   cp .env.example .env
+   ```
+   [`.env.example`](.env.example) documents every key with a placeholder value.
+   `.env` itself is gitignored — it is the one place real credentials live
+   locally, so never commit it.
+
+   For the non-Docker setup the defaults work as-is:
    ```env
    DATABASE_URL=postgresql://postgres:postgres@localhost:5432/students_db
    PORT=5000
@@ -296,7 +304,9 @@ helm/
 ├── eso-config/           # ClusterSecretStore wiring ESO to Vault over Kubernetes auth
 ├── postgres-db/          # PostgreSQL StatefulSet, headless Service, ConfigMap, ExternalSecret
 ├── student-api/          # REST API Deployment (Alembic initContainer), NodePort Service, ConfigMap, ExternalSecret
-└── argocd/               # Wrapper around the community Argo CD chart (vendored, like external-secrets)
+├── argocd/               # Wrapper around the community Argo CD chart (vendored, like external-secrets)
+└── observability/        # Wrapper around eight upstream charts (vendored): Prometheus, Loki,
+                          #   Grafana, Promtail, and the node / kube-state / postgres / blackbox exporters
 
 argocd-apps/              # Plain Kubernetes YAML, no Helm chart: AppProject, repo Secret,
                            # one Application per chart above, and the app-of-apps root
@@ -324,6 +334,7 @@ Each chart follows the same conventions:
 | `postgres-db` | `postgres-db` | `student-api` | StatefulSet + Service `postgres-db`, Secret `postgres-db-secret` |
 | `student-api` | `student-api` | `student-api` | Deployment + NodePort Service `student-api`, Secret `student-api-db-url` |
 | `argocd` | `argocd` | `argocd` | Argo CD controller, repo-server, server, redis, CRDs |
+| `observability` | `observability` | `observability-ns` | Prometheus, Loki, Grafana, Promtail + node / kube-state / postgres / blackbox exporters |
 
 `argocd-apps/` (plain YAML, not a chart, no release) additionally creates the AppProject `sre-bootcamp`, the repository Secret, and the Applications — see [argocd-apps/README.md](argocd-apps/README.md).
 
@@ -338,14 +349,16 @@ No password is stored in a chart, in `values.yaml`, or in git:
 
 ```
 Vault (secret/one2n/dev/app-config)
-  │   db_password, db_url
+  │   db_password, db_url, grafana_admin_user, grafana_admin_password
   │
   ├─ ClusterSecretStore "vault-backend"   (eso-config chart; ESO logs in to Vault
   │                                        as eso-ns/external-secrets over the
   │                                        Kubernetes auth method)
   │
-  ├─ ExternalSecret postgres-db      → Secret postgres-db-secret     → POSTGRES_PASSWORD
-  └─ ExternalSecret student-api-db-url → Secret student-api-db-url   → DATABASE_URL
+  ├─ ExternalSecret postgres-db        → Secret postgres-db-secret     → POSTGRES_PASSWORD
+  ├─ ExternalSecret student-api-db-url → Secret student-api-db-url     → DATABASE_URL
+  ├─ ExternalSecret postgres-exporter-db → Secret postgres-exporter-db → DB_PASSWORD (postgres-exporter)
+  └─ ExternalSecret grafana-admin      → Secret grafana-admin          → Grafana admin login
 ```
 
 ### Prerequisites
@@ -550,6 +563,7 @@ truth for what runs in the cluster.
 | `eso-config` | `helm/eso-config` | `eso-ns` | 2 |
 | `postgres-db` | `helm/postgres-db` | `student-api` | 3 |
 | `student-api` | `helm/student-api` | `student-api` | 4 |
+| `observability` | `helm/observability` | `observability-ns` | 5 |
 | `sre-bootcamp-root` | `argocd` (a `directory` source, not `helm`) | `argocd` | −1 |
 
 `sre-bootcamp-root` is the app-of-apps: it points back at the [`argocd-apps/`](argocd-apps/)
@@ -681,4 +695,155 @@ A few settings exist for non-obvious reasons and are worth keeping:
 | Applications `Synced` but pods stuck in `CreateContainerConfigError` | Vault sealed, so ESO has not created the Secrets | `make vault-unseal` |
 
 ---
-1111
+
+## Observability stack (Prometheus, Loki, Grafana, Promtail)
+
+Metrics and logs for the REST API and everything it depends on, deployed by the
+[`helm/observability`](helm/observability/) chart into the **`observability-ns`**
+namespace on the **`dependent_services`** node.
+
+The single most useful thing to understand: there are **two completely separate
+pipelines**. Prometheus and Loki never talk to each other — they meet only
+inside Grafana.
+
+```
+METRICS  (Prometheus PULLS)                  LOGS  (Loki RECEIVES pushes)
+
+  node-exporter     ─┐                         pod writes to stdout
+  kube-state-metrics ┤                                │
+  postgres-exporter  ┼──► Prometheus           /var/log/pods on the node
+  blackbox-exporter ─┘         │                      │
+                               │               Promtail (DaemonSet) tails it
+                               │                      │ pushes
+                               │                    Loki
+                               └──────────┬───────────┘
+                                          ▼
+                                       Grafana
+                                (two datasources, live queries)
+```
+
+Grafana stores neither metrics nor logs — every panel runs a live query, so
+deleting it loses no data.
+
+### Components
+
+| Component | Kind | Service | What it reports |
+| --- | --- | --- | --- |
+| `prometheus-server` | Deployment | `prometheus-server:80` | scrapes everything below, stores samples, answers PromQL |
+| `kube-state-metrics` | Deployment | `kube-state-metrics:8080` | Kubernetes object state: replicas wanted vs ready, restarts, pod phases |
+| `node-exporter` | **DaemonSet** | `node-exporter:9100` | per-machine CPU, memory, disk, network from `/proc` and `/sys` |
+| `postgres-exporter` | Deployment | `postgres-exporter:80` | PostgreSQL statistics — the DB metrics exporter |
+| `blackbox-exporter` | Deployment | `blackbox-exporter:9115` | probes URLs: reachability, status code, latency |
+| `loki` | StatefulSet | `loki:3100` | log storage, indexes labels only |
+| `promtail` | **DaemonSet** | — | tails pod logs and pushes them to Loki |
+| `grafana` | Deployment | `grafana:80` | the query UI, both datasources provisioned as code |
+
+`node-exporter` and `promtail` are DaemonSets with **no** `nodeSelector` on
+purpose: both read per-machine files, so pinning them to `dependent_services`
+would blind you to every other node. Everything else follows the deployment
+diagram.
+
+All eight upstream charts are pinned to an exact version in
+[`helm/observability/Chart.yaml`](helm/observability/Chart.yaml) and vendored
+into `charts/`, so no `helm repo add` is needed at deploy time.
+
+### Prerequisite: the local-path StorageClass
+
+Prometheus, Loki and Grafana all take a PVC. Minikube's default `standard`
+class binds a volume **before** the scheduler picks a node, so on a multi-node
+cluster the directory is created on the wrong machine and all three crash-loop
+on a directory they cannot write to. Enable the provisioner that waits:
+
+```bash
+minikube addons enable storage-provisioner-rancher
+kubectl get sc     # local-path should appear
+```
+
+This is a StorageClass problem, not a `securityContext` one — `fsGroup` cannot
+fix it, because kubelet refuses to chown hostPath volumes.
+
+### Deploying
+
+Grafana's admin login and the exporter's database password come from Vault, so
+seed them first (`make vault-seed` now writes both):
+
+```bash
+# Override the defaults for anything but a local cluster
+make vault-seed GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)
+
+make helm-install-observability
+```
+
+`make helm-install-all` includes it as the last step. Under GitOps it is Argo CD
+Application `observability` (wave 5) — last, because it monitors everything
+else.
+
+### Verifying
+
+```bash
+make prometheus-ui      # http://localhost:9090 → Status → Target health
+make grafana-password   # the admin password ESO synced out of Vault
+make grafana-ui         # http://localhost:3000, log in as admin
+```
+
+Prometheus should show **6 jobs, all UP**, with `node-exporter` reporting one
+target per node:
+
+| Job | Targets |
+| --- | --- |
+| `prometheus` | itself |
+| `node-exporter` | one per node |
+| `kube-state-metrics` | 1 |
+| `postgres-exporter` | 1 |
+| `blackbox-http` | REST API `/healthcheck`, Vault `/v1/sys/health` |
+| `blackbox-https` | Argo CD server `/healthz` |
+
+A job showing **0 targets** and a job showing targets that are **DOWN** look
+identical from a dashboard and have opposite causes — the first means the
+`keep` relabel rule matched nothing (wrong Service name), the second means
+discovery worked but the scrape failed.
+
+Confirm Promtail is shipping application logs only:
+
+```bash
+kubectl exec -n observability-ns deploy/grafana -- wget -qO- \
+  'http://loki.observability-ns.svc.cluster.local:3100/loki/api/v1/label/namespace/values'
+# → {"status":"success","data":["student-api"]}
+```
+
+In Grafana, both datasources are already provisioned — no clicking required.
+Useful starting queries:
+
+```promql
+up                                                       # 1 or 0 per target
+100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))
+kube_deployment_spec_replicas - kube_deployment_status_replicas_available
+probe_success                                            # 1 = endpoint reachable
+probe_duration_seconds                                   # endpoint latency
+pg_up                                                    # database reachable
+```
+
+```logql
+{namespace="student-api"} |= "error"
+```
+
+The payoff is correlating the two: graph a CPU spike in Prometheus, then use
+**Split** in Explore to read the app's logs at the same timestamp. That works
+because both pipelines label data identically (`namespace`, `pod`,
+`container`) — both got those labels from `kubernetes_sd_configs`.
+
+### Design notes
+
+| Decision | Why |
+| --- | --- |
+| Promtail filters to `namespace=student-api` at the agent | The milestone asks for application logs only. Dropping at the agent means those lines are never read or transmitted. The trade-off: a failure caused by something in `kube-system` leaves no trace |
+| `updateStrategy.maxUnavailable: 100%` on Promtail | Because of that filter, Promtail is idle on nodes with no `student-api` pods, and an idle Promtail reports itself **unready** — which stalls the default one-at-a-time DaemonSet rollout forever |
+| Grafana's admin password comes from Vault | The chart's random generator produces a new value on every render, which Argo CD would report as permanent drift |
+| The chart's 10 default scrape jobs are disabled individually | Every job is one we wrote and understand. `scrapeConfigs: null` does not work here — Helm does not propagate null-deletion into a subchart's values |
+| `fullnameOverride` on every subchart | Pins Service names. Otherwise Helm generates `<release>-<chart>` and the relabel rules that must match those names fail **silently**, with zero targets and no error |
+| Blackbox endpoints are listed in the scrape job, not the exporter | Prometheus scrapes the *exporter*, passing each endpoint as a `?target=` parameter. The exporter only defines *how* to probe |
+| Promtail rather than Grafana Alloy | Promtail is deprecated upstream in favour of Alloy; it is used here because the bootcamp specifies the PLG stack |
+
+Full detail — including every values key, the exporter comparison, and a
+troubleshooting table — is in
+[helm/observability/README.md](helm/observability/README.md).
