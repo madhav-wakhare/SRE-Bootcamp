@@ -1,0 +1,69 @@
+apiVersion: v2
+name: observability
+description: >-
+  PLG (Promtail, Loki, Grafana) logging stack plus Prometheus metrics
+  monitoring for the Student REST API and its dependent services. Every
+  upstream chart is pinned and vendored into charts/ so the whole stack can be
+  installed from this repository without reaching out to an external Helm repo
+  at deploy time.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: madhav-wakhare
+keywords:
+  - observability
+  - monitoring
+  - prometheus
+  - loki
+  - grafana
+  - promtail
+
+# Every dependency is pinned to an exact version -- never a range. A range
+# would let `helm dependency build` pull a different chart on a different day,
+# which is the opposite of what a GitOps repository is for.
+dependencies:
+  # --- Metrics -------------------------------------------------------------
+  # Prometheus server: scrapes /metrics endpoints, stores samples, answers
+  # PromQL. Its own bundled exporters are disabled in values.yaml because we
+  # install them below as siblings instead.
+  - name: prometheus
+    version: 29.23.0
+    repository: https://prometheus-community.github.io/helm-charts
+
+  # Cluster object state: replicas wanted vs ready, pod phases, restarts.
+  - name: kube-state-metrics
+    version: 8.2.0
+    repository: https://prometheus-community.github.io/helm-charts
+
+  # Per-node machine metrics read from /proc and /sys.
+  - name: prometheus-node-exporter
+    version: 4.56.1
+    repository: https://prometheus-community.github.io/helm-charts
+
+  # DB metrics exporter: connects to PostgreSQL and publishes its statistics.
+  - name: prometheus-postgres-exporter
+    version: 8.2.0
+    repository: https://prometheus-community.github.io/helm-charts
+
+  # Probes URLs from outside and reports latency / status code / uptime.
+  - name: prometheus-blackbox-exporter
+    version: 11.16.0
+    repository: https://prometheus-community.github.io/helm-charts
+
+  # --- Logs ----------------------------------------------------------------
+  # Log store. Indexes labels only, never log text.
+  - name: loki
+    version: 7.2.0
+    repository: https://grafana.github.io/helm-charts
+
+  # Per-node agent that tails pod log files and pushes them to Loki.
+  - name: promtail
+    version: 6.17.1
+    repository: https://grafana.github.io/helm-charts
+
+  # --- UI ------------------------------------------------------------------
+  # Queries Prometheus and Loki. Stores no metrics and no logs itself.
+  - name: grafana
+    version: 10.5.15
+    repository: https://grafana.github.io/helm-charts

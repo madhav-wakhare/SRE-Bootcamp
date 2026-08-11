@@ -45,10 +45,14 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
+      # v3 ran on the Node 20 runtime, which GitHub's runners no longer provide
+      # by default. A Node 20 action on a Node 24 runner fails part-way through
+      # with "Missing file at path: .../_runner_file_commands/add_path_<guid>".
+      # v7 is the current major and runs on node24.
       - name: Setup uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -96,9 +100,16 @@ jobs:
   update-image-tag:
     name: Update Helm image tag for Argo CD
     needs: ci
-    # Only for real pushes to a branch: a pull_request build must not rewrite
-    # the base branch, and a PR merge ref is not something Argo CD tracks.
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # Only for pushes to main. Two separate reasons:
+    #   - branch: main is the revision Argo CD tracks, so a tag bump on any
+    #     other branch would be committed somewhere nothing deploys from.
+    #   - event: a pull_request build must never rewrite the base branch, and
+    #     a PR merge ref is not a branch that can be pushed back to.
+    # workflow_dispatch is kept so the tag can be re-applied by hand, but it is
+    # still gated on main -- github.ref is whichever branch the run targets.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, macOS, ARM64]
 
     permissions:
@@ -106,7 +117,7 @@ jobs:
 
     steps:
       - name: Checkout the branch that was pushed
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.ref_name }}
           # Full history, so the rebase in the next step has something to rebase.

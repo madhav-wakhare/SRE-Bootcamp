@@ -20,6 +20,7 @@ pull request.
 | `application-eso-config.yaml` | Application `eso-config` | Deploys `helm/eso-config` → namespace `eso-ns`, wave 2 |
 | `application-postgres-db.yaml` | Application `postgres-db` | Deploys `helm/postgres-db` → namespace `student-api`, wave 3 |
 | `application-student-api.yaml` | Application `student-api` | Deploys `helm/student-api` → namespace `student-api`, wave 4 |
+| `application-observability.yaml` | Application `observability` | Deploys `helm/observability` → namespace `observability-ns`, wave 5 |
 | `application-root.yaml` | Application `sre-bootcamp-root` | The app-of-apps — points back at this folder |
 
 Every `Application`'s source is a **chart path in this repository, plus its
